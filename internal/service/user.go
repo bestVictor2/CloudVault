@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"Go_Pan/internal/repo"
@@ -10,7 +10,11 @@ import (
 // CreateUser hashes password and creates a user.
 func CreateUser(user *model.User) error {
 	// 对密码进行加
-	user.Password = utils.GetPwd(user.Password)
+	hashed, err := utils.GetPwd(user.Password)
+	if err != nil {
+		return err
+	}
+	user.Password = hashed
 	if err := repo.Db.Create(user).Error; err != nil {
 		return err
 	}
@@ -65,6 +69,3 @@ func IsEmailExist(email string) error {
 	}
 	return nil
 }
-
-
-

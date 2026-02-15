@@ -1,4 +1,4 @@
-﻿package utils
+package utils
 
 import (
 	"Go_Pan/config"
@@ -37,6 +37,12 @@ func GenerateToken(userId uint64, username string) (string, error) {
 // VerifyToken parses and validates a JWT.
 func VerifyToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		if token.Method == nil || token.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, errors.New("unexpected signing method")
+		}
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
 		return []byte(config.AppConfig.JWTSecret), nil
 	})
 	if err != nil {
@@ -47,4 +53,3 @@ func VerifyToken(tokenString string) (*Claims, error) {
 	}
 	return nil, errors.New("invalid token")
 }
-

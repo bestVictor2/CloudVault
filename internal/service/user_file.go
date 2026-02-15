@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"Go_Pan/internal/dto"
@@ -353,8 +353,8 @@ func MoveFiles(userID uint64, fileIDs []uint64, targetID *uint64) error {
 			if *targetID == fileID {
 				return fmt.Errorf("cannot move folder to itself")
 			}
-			// 检查是否为子目
-			if isChildFolder(fileID, *targetID) {
+			// 检查目标是否为当前文件的子目录
+			if isChildFolder(userID, *targetID, fileID) {
 				return fmt.Errorf("cannot move folder to its subfolder")
 			}
 		}
@@ -387,7 +387,7 @@ func MoveFiles(userID uint64, fileIDs []uint64, targetID *uint64) error {
 	}
 
 	if err := repo.Db.Model(&model.UserFile{}).
-		Where("id IN ?", fileIDs).
+		Where("id IN ? AND user_id = ? AND is_deleted = 0", fileIDs, userID).
 		Update("parent_id", targetID).Error; err != nil {
 		return err
 	}
@@ -410,9 +410,9 @@ func MoveFiles(userID uint64, fileIDs []uint64, targetID *uint64) error {
 }
 
 // isChildFolder 检查folderID是否是parentID的子文件
-func isChildFolder(folderID, parentID uint64) bool {
+func isChildFolder(userID, folderID, parentID uint64) bool {
 	var child model.UserFile
-	if err := repo.Db.Where("id = ? AND is_dir = 1", folderID).First(&child).Error; err != nil {
+	if err := repo.Db.Where("id = ? AND user_id = ? AND is_dir = 1", folderID, userID).First(&child).Error; err != nil {
 		return false
 	}
 
@@ -423,7 +423,7 @@ func isChildFolder(folderID, parentID uint64) bool {
 			return true
 		}
 		var parent model.UserFile
-		if err := repo.Db.Where("id = ?", *currentParent).First(&parent).Error; err != nil {
+		if err := repo.Db.Where("id = ? AND user_id = ?", *currentParent, userID).First(&parent).Error; err != nil {
 			return false
 		}
 		currentParent = parent.ParentID
@@ -586,6 +586,3 @@ func CreateFolder(userID uint64, parentID *uint64, name string) error {
 	invalidateFileListCache(userID, parentID)
 	return nil
 }
-
-
-

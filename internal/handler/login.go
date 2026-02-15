@@ -1,4 +1,4 @@
-﻿package handler
+package handler
 
 import (
 	"Go_Pan/internal/dto"
@@ -23,6 +23,10 @@ func Login(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "该用户不存在"})
 		return
 	}
+	if !user.IsActive {
+		c.JSON(http.StatusForbidden, gin.H{"error": "账号未激活"})
+		return
+	}
 	if err = service.CheckPassword(loginRequest.Username, loginRequest.Password); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "密码错误"})
 		return
@@ -38,6 +42,3 @@ func Login(c *gin.Context) {
 		"user":    user,
 	})
 }
-
-
-

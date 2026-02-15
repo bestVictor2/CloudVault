@@ -1,18 +1,14 @@
-﻿package utils
+package utils
 
-import (
-	"golang.org/x/crypto/bcrypt"
-	_ "golang.org/x/crypto/bcrypt"
-	"log"
-)
+import "golang.org/x/crypto/bcrypt"
 
 // GetPwd hashes a password.
-func GetPwd(pwd string) string {
+func GetPwd(pwd string) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(pwd), bcrypt.DefaultCost)
 	if err != nil {
-		log.Fatal("generate password error:", err)
+		return "", err
 	}
-	return string(hash)
+	return string(hash), nil
 }
 
 // CheckPwd verifies a password hash.
@@ -24,4 +20,3 @@ func CheckPwd(pwd string, password string) bool {
 		return true
 	}
 }
-

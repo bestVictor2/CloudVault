@@ -1,4 +1,4 @@
-﻿package handler
+package handler
 
 import (
 	"Go_Pan/internal/dto"
@@ -7,6 +7,7 @@ import (
 	"Go_Pan/model"
 	"Go_Pan/utils"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"golang.org/x/net/context"
+	"gorm.io/gorm"
 )
 
 // Register starts user registration and sends activation mail.
@@ -25,8 +27,22 @@ func Register(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
+	if req.FirstPassword != req.LastPassword {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "passwords do not match"})
+		return
+	}
+	if _, err := service.IsExist(req.Username); err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "username already exists"})
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "check username failed"})
+		return
+	}
 	if err := service.IsEmailExist(req.Email); err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "email already exists"})
+		return
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "check email failed"})
 		return
 	}
 
@@ -122,6 +138,3 @@ func Activate(c *gin.Context) {
 	_ = repo.Redis.Set(ctx, "register_used:"+token, "1", 10*time.Minute).Err()
 	c.JSON(http.StatusOK, gin.H{"msg": "account activated"})
 }
-
-
-

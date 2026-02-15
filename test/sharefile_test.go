@@ -1,4 +1,4 @@
-﻿package test
+package test
 
 import (
 	"Go_Pan/internal/repo"
@@ -117,6 +117,9 @@ func TestShareExpiredListener(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := repo.EnableKeyspaceNotifications(context.Background()); err != nil {
+		t.Skipf("skip: redis keyspace notifications not enabled: %v", err)
+	}
 	//go repo.ListenRedisExpired(context.Background(), repo.Redis)
 	// 手动设置一个极 TTL
 
@@ -147,6 +150,3 @@ func TestShareExpiredListener(t *testing.T) {
 		t.Fatalf("expect status=1, got %d", status)
 	}
 }
-
-
-

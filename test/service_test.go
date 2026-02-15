@@ -1,4 +1,4 @@
-﻿package test
+package test
 
 import (
 	"Go_Pan/config"
@@ -34,6 +34,9 @@ func TestMain(m *testing.M) {
 	repo.InitMysqlTest()
 	storage.InitMinio()
 	repo.InitRedis()
+	if err := repo.EnableKeyspaceNotifications(context.Background()); err != nil {
+		log.Printf("[testmain] enable redis keyspace notifications failed: %v", err)
+	}
 	log.Println("[testmain] redis db =", repo.Redis.Options().DB)
 	ready := make(chan struct{})
 	go repo.ListenRedisExpired(context.Background(), repo.Redis, ready)
@@ -71,6 +74,3 @@ func cleanupAllTables() {
 
 	log.Println("[testmain] all tables cleaned")
 }
-
-
-
