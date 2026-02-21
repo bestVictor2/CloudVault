@@ -1,6 +1,7 @@
 package service
 
 import (
+	"Go_Pan/internal/activity"
 	"Go_Pan/internal/dto"
 	"Go_Pan/internal/repo"
 	"Go_Pan/model"
@@ -61,6 +62,7 @@ func CreateUserFile(userFile *model.UserFile) error {
 	// 更新传入对象的ID
 	userFile.ID = file.ID
 	invalidateFileListCache(userFile.UserID, userFile.ParentID)
+	_ = activity.Emit(context.Background(), userFile.UserID, activity.ActionUpload, file.ID, file.Size)
 	return nil
 }
 
@@ -158,11 +160,14 @@ func DeleteFileRecord(userID, fileID uint) error {
 		return errors.New("file not found")
 	}
 
+	var deletedBytes int64
 	if file.IsDir {
-		if err := deleteFolderRecursively(file.ID); err != nil {
+		deletedBytes, err = deleteFolderRecursively(file.ID)
+		if err != nil {
 			return err
 		}
 	} else {
+		deletedBytes = file.Size
 		if err := repo.Db.Unscoped().Delete(&model.UserFile{}, fileID).Error; err != nil {
 			return err
 		}
@@ -179,42 +184,47 @@ func DeleteFileRecord(userID, fileID uint) error {
 		}
 	}
 	invalidateFileListCache(uint64(userID), file.ParentID)
+	_ = activity.Emit(context.Background(), uint64(userID), activity.ActionDelete, uint64(fileID), deletedBytes)
 	return nil
 }
 
 // deleteFolderRecursively 递归删除文件夹及其所有子文件
-func deleteFolderRecursively(folderID uint64) error {
+func deleteFolderRecursively(folderID uint64) (int64, error) {
 	// 查找所有子文件
 	var children []model.UserFile
 	if err := repo.Db.Unscoped().Where("parent_id = ?", folderID).Find(&children).Error; err != nil {
-		return err
+		return 0, err
 	}
 
+	var deletedBytes int64
 	// 递归删除每个子文
 	for _, child := range children {
 		if child.IsDir {
 
-			if err := deleteFolderRecursively(child.ID); err != nil {
-				return err
+			childBytes, err := deleteFolderRecursively(child.ID)
+			if err != nil {
+				return 0, err
 			}
+			deletedBytes += childBytes
 
 			if err := repo.Db.Unscoped().Delete(&model.UserFile{}, child.ID).Error; err != nil {
-				return err
+				return 0, err
 			}
 		} else {
+			deletedBytes += child.Size
 
 			if err := repo.Db.Unscoped().Delete(&model.UserFile{}, child.ID).Error; err != nil {
-				return err
+				return 0, err
 			}
 			if child.ObjectID != nil {
 				if err := RemoveObject(*child.ObjectID); err != nil {
-					return err
+					return 0, err
 				}
 			}
 		}
 	}
 
-	return nil
+	return deletedBytes, nil
 }
 
 // CheckFileOwner checks file ownership.

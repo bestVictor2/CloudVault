@@ -1,8 +1,9 @@
 ﻿package model
 
 import (
-	"gorm.io/gorm"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type UserFile struct {
@@ -34,5 +35,9 @@ func (UserFile) TableName() string {
 	return "user_file"
 }
 
-
-
+/*
+关于数据库字段中指针与非指针的用法
+在该文件中 NOT NULL 的字段可以设置为值类型 比如 UserID 而对于 ParentID 如果为根目录则不会对应有值 所以此处选择使用指针
+Parent等 为关联对象 在此处也选择使用指针
+在此处 User 为强关联字段 必须使用值类型 强关联类型也就是某个 UserFile 必定对应某个 User
+*/

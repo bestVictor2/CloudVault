@@ -1,7 +1,8 @@
-﻿package task
+package task
 
 import (
 	"Go_Pan/config"
+	"Go_Pan/internal/activity"
 	"Go_Pan/internal/mq"
 	"Go_Pan/internal/repo"
 	"Go_Pan/internal/service"
@@ -133,11 +134,15 @@ func ProcessDownloadTask(ctx context.Context, taskID uint64) error {
 	}
 
 	finishedAt := time.Now()
-	return repo.Db.Model(&task).Updates(map[string]interface{}{
+	if err := repo.Db.Model(&task).Updates(map[string]interface{}{
 		"status":      "completed",
 		"progress":    100,
 		"finished_at": &finishedAt,
-	}).Error
+	}).Error; err != nil {
+		return err
+	}
+	_ = activity.Emit(context.Background(), task.UserID, activity.ActionDownload, userFile.ID, size)
+	return nil
 }
 
 func markDownloadTaskFailed(taskID uint64, err error) {
@@ -150,6 +155,3 @@ func markDownloadTaskFailed(taskID uint64, err error) {
 			"finished_at": &finishedAt,
 		}).Error
 }
-
-
-

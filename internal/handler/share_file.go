@@ -1,6 +1,7 @@
-﻿package handler
+package handler
 
 import (
+	"Go_Pan/internal/activity"
 	"Go_Pan/internal/dto"
 	"Go_Pan/internal/service"
 	"Go_Pan/utils"
@@ -88,7 +89,10 @@ func ShareDownload(c *gin.Context) {
 		c.JSON(500, gin.H{"msg": "download failed"})
 		return
 	}
+	_ = service.LogShareAccess(share, service.ShareAccessMeta{
+		VisitorIP: c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+		Referer:   c.Request.Referer(),
+	})
+	_ = activity.Emit(c.Request.Context(), share.UserID, activity.ActionDownload, share.FileID, info.Size)
 }
-
-
-

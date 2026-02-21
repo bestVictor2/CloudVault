@@ -1,4 +1,4 @@
-﻿package service
+package service
 
 import (
 	"Go_Pan/config"
@@ -13,14 +13,17 @@ import (
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	"time"
 )
+
+const fileObjectCacheTTL = 5 * time.Minute
 
 // BuildObjectName builds object path for a user's hash.
 func BuildObjectName(username, hash string) string {
 	return fmt.Sprintf("files/%s/%s", username, hash)
 }
 
-// DeleteMinioFile removes an object from MinIO. 
+// DeleteMinioFile removes an object from MinIO.
 // MinIO 删除对象
 func DeleteMinioFile(fileObject *model.FileObject) error {
 	ctx := context.Background()
@@ -36,7 +39,11 @@ func DeleteMinioFile(fileObject *model.FileObject) error {
 
 // CreateFilesObject inserts a file object record.
 func CreateFilesObject(dir *model.FileObject) error {
-	return repo.Db.Model(&model.FileObject{}).Create(dir).Error
+	if err := repo.Db.Model(&model.FileObject{}).Create(dir).Error; err != nil {
+		return err
+	}
+	_ = utils.SetFileObjectToCache(context.Background(), dir.ID, dir, fileObjectCacheTTL)
+	return nil
 }
 
 // GetFileByObject finds a file object by bucket and name.
@@ -53,21 +60,35 @@ func GetFileByObject(bucket, object string) (*model.FileObject, error) {
 func GetFileObjectByHash(hash string) (*model.FileObject, error) {
 	var obj model.FileObject
 	err := repo.Db.Where("hash = ?", hash).First(&obj).Error
+	if err == nil {
+		_ = utils.SetFileObjectToCache(context.Background(), obj.ID, &obj, fileObjectCacheTTL)
+	}
 	return &obj, err
 }
 
 // GetFileObjectById finds a file object by ID.
 func GetFileObjectById(id uint64) (*model.FileObject, error) {
+	if cached, ok := utils.GetFileObjectFromCache(context.Background(), id); ok && cached != nil {
+		return cached, nil
+	}
+
 	var file model.FileObject
 	err := repo.Db.Where("id = ?", id).First(&file).Error
+	if err == nil {
+		_ = utils.SetFileObjectToCache(context.Background(), file.ID, &file, fileObjectCacheTTL)
+	}
 	return &file, err
 }
 
 // IncreaseRefCount increments object reference count.
 func IncreaseRefCount(id uint64) error {
-	return repo.Db.Model(&model.FileObject{}).
+	if err := repo.Db.Model(&model.FileObject{}).
 		Where("id = ?", id).
-		UpdateColumn("ref_count", gorm.Expr("ref_count + 1")).Error
+		UpdateColumn("ref_count", gorm.Expr("ref_count + 1")).Error; err != nil {
+		return err
+	}
+	_ = utils.InvalidateFileObjectCache(context.Background(), id)
+	return nil
 }
 
 // DecreaseRefCount decrements object reference count.
@@ -82,6 +103,7 @@ func DecreaseRefCount(id uint64) (int, error) {
 			UpdateColumn("ref_count", gorm.Expr("ref_count - 1")).Error; err != nil {
 			return 0, err
 		}
+		_ = utils.InvalidateFileObjectCache(context.Background(), id)
 		return fileObject.RefCount - 1, nil
 	}
 	return 0, nil
@@ -422,6 +444,7 @@ func CompleteFile(
 				}).Error; err != nil {
 				return err
 			}
+			_ = utils.InvalidateFileObjectCache(context.Background(), existingObj.ID)
 		}
 		if err := IncreaseRefCount(existingObj.ID); err != nil {
 			return err
@@ -504,12 +527,10 @@ func RemoveObject(objectId uint64) error {
 	if err := repo.Db.Delete(&model.FileObject{}, objectId).Error; err != nil {
 		return err
 	}
+	_ = utils.InvalidateFileObjectCache(context.Background(), objectId)
 	var session model.UploadSession
 	if err := repo.Db.Where("file_hash = ? AND user_id = ?", fileObject.Hash, fileObject.UserID).Order("id desc").First(&session).Error; err != nil {
 		return nil
 	}
 	return repo.Db.Where("upload_id = ?", session.UploadID).Delete(&model.FileChunk{}).Error
 }
-
-
-

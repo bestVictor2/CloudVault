@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Go Pan 分享统计</title>
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body data-page="share-analytics">
+    <div class="backdrop">
+      <span class="orb orb-a"></span>
+      <span class="orb orb-b"></span>
+      <span class="orb orb-c"></span>
+    </div>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo"></div>
+        <h1>Go Pan</h1>
+      </div>
+      <nav>
+        <a href="../index.html">首页</a>
+        <a href="./auth.html">认证</a>
+        <a href="./files.html">文件</a>
+        <a href="./upload.html">上传</a>
+        <a href="./share.html">分享</a>
+        <a href="./recycle.html">回收站</a>
+        <a href="./tasks.html">任务</a>
+        <a href="./profile.html">个人中心</a>
+        <a href="./library.html">内容扩展</a>
+        <a class="active" href="./share-analytics.html">分享统计</a>
+        <a href="./preview.html">预览</a>
+      </nav>
+      <div class="auth-bar">
+        <input id="apiBase" type="text" value="" />
+        <button id="saveBase" class="ghost">设置 API</button>
+        <span class="auth-chip">状态：<strong id="authState">-</strong></span>
+        <span class="auth-chip">用户：<strong id="authUser">-</strong></span>
+        <span class="auth-chip">Token：<strong id="authToken">-</strong></span>
+        <button id="logoutBtn" class="ghost">退出</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="page-hero">
+        <div class="hero-card">
+          <h2>分享访问记录与来源统计</h2>
+          <p>可用于展示“分布式统计链路”能力：分享访问日志 + 聚合分析。</p>
+        </div>
+        <div class="hero-card">
+          <h2>统计窗口</h2>
+          <div class="actions">
+            <label for="shareStatsDays">天数</label>
+            <select id="shareStatsDays">
+              <option value="7">7 天</option>
+              <option value="14">14 天</option>
+              <option value="30" selected>30 天</option>
+              <option value="60">60 天</option>
+            </select>
+            <button id="shareStatsLoadBtn" class="primary">加载统计</button>
+          </div>
+          <div id="shareStatsStatus" class="status">待操作</div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel full">
+          <h3>统计概览</h3>
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span class="metric-label">总访问</span>
+              <strong id="shareVisitTotal">0</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">独立 IP</span>
+              <strong id="shareVisitUniqueIPs">0</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">统计窗口</span>
+              <strong id="shareVisitWindow">-</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel half">
+          <h3>来源分布</h3>
+          <div class="table share-source-table">
+            <div class="row header">
+              <span>来源</span>
+              <span>访问量</span>
+            </div>
+            <div id="shareSourceRows" class="rows"></div>
+          </div>
+        </div>
+
+        <div class="panel half">
+          <h3>按天趋势</h3>
+          <div class="table share-daily-table">
+            <div class="row header">
+              <span>日期</span>
+              <span>访问量</span>
+            </div>
+            <div id="shareDailyRows" class="rows"></div>
+          </div>
+        </div>
+
+        <div class="panel full">
+          <h3>Top 分享链接</h3>
+          <div class="table share-top-table">
+            <div class="row header">
+              <span>Share ID</span>
+              <span>文件 ID</span>
+              <span>文件名</span>
+              <span>访问量</span>
+            </div>
+            <div id="shareTopRows" class="rows"></div>
+          </div>
+        </div>
+
+        <div class="panel full">
+          <div class="panel-header">
+            <h3>访问日志</h3>
+            <div class="actions">
+              <input id="shareLogShareId" type="text" placeholder="可选：按 Share ID 过滤" />
+              <input id="shareLogLimit" type="number" value="50" />
+              <button id="shareLogLoadBtn" class="secondary">加载日志</button>
+            </div>
+          </div>
+          <div class="table share-log-table">
+            <div class="row header">
+              <span>时间</span>
+              <span>Share ID</span>
+              <span>文件</span>
+              <span>来源</span>
+              <span>访客 IP</span>
+              <span>Referer</span>
+            </div>
+            <div id="shareLogRows" class="rows"></div>
+          </div>
+          <div id="shareLogStatus" class="status">待操作</div>
+        </div>
+      </section>
+    </main>
+
+    <script src="../app.js"></script>
+  </body>
+</html>

@@ -1,4 +1,4 @@
-﻿package utils
+package utils
 
 import (
 	"Go_Pan/internal/repo"
@@ -36,13 +36,14 @@ func (c *RedisCache) Get(ctx context.Context, key string, dest interface{}) erro
 	if err != nil {
 		return err
 	}
-
+	// 关于 Unmarshal 函数 用于将 json 格式反序列化存入 dest 中 用在 gin 的 shoubindjson 中
 	return json.Unmarshal([]byte(val), dest)
 }
 
 // Set writes a cached value.
 func (c *RedisCache) Set(ctx context.Context, key string, value interface{}, expiration time.Duration) error {
 	data, err := json.Marshal(value)
+	// Marshal 函数是转化为json类型切片
 	if err != nil {
 		return err
 	}
@@ -58,6 +59,7 @@ func (c *RedisCache) Delete(ctx context.Context, key string) error {
 // DeleteByPattern deletes cache entries by pattern.
 func (c *RedisCache) DeleteByPattern(ctx context.Context, pattern string) error {
 	var cursor uint64
+	// cursor 的默认值默认为0
 	for {
 		keys, nextCursor, err := c.client.Scan(ctx, cursor, pattern, 100).Result()
 		if err != nil {
@@ -94,7 +96,7 @@ var cacheManagerOnce sync.Once
 
 // InitCacheManager initializes the cache manager.
 func InitCacheManager() {
-	cacheManagerOnce.Do(func() {
+	cacheManagerOnce.Do(func() { // 单一用例模式
 		globalCacheManager = &CacheManager{
 			cache: NewRedisCache(repo.Redis),
 		}
@@ -178,20 +180,20 @@ func InvalidateUserFileListCache(ctx context.Context, userId uint64, parentId ui
 }
 
 // GetUserInfoFromCache reads cached user info.
-func GetUserInfoFromCache(ctx context.Context, userId uint64) (interface{}, bool) {
+func GetUserInfoFromCache(ctx context.Context, userId uint64) (*model.User, bool) {
 	manager := GetCacheManager()
 	key := BuildCacheKey(CacheKeyUserInfo, userId)
 
-	var result interface{}
+	var result model.User
 	if err := manager.cache.Get(ctx, key, &result); err != nil {
 		return nil, false
 	}
 
-	return result, true
+	return &result, true
 }
 
 // SetUserInfoToCache writes cached user info.
-func SetUserInfoToCache(ctx context.Context, userId uint64, data interface{}, expiration time.Duration) error {
+func SetUserInfoToCache(ctx context.Context, userId uint64, data *model.User, expiration time.Duration) error {
 	manager := GetCacheManager()
 	key := BuildCacheKey(CacheKeyUserInfo, userId)
 	return manager.cache.Set(ctx, key, data, expiration)
@@ -205,20 +207,20 @@ func InvalidateUserInfoCache(ctx context.Context, userId uint64) error {
 }
 
 // GetFileObjectFromCache reads cached file object.
-func GetFileObjectFromCache(ctx context.Context, objectId uint64) (interface{}, bool) {
+func GetFileObjectFromCache(ctx context.Context, objectId uint64) (*model.FileObject, bool) {
 	manager := GetCacheManager()
 	key := BuildCacheKey(CacheKeyFileObject, objectId)
 
-	var result interface{}
+	var result model.FileObject
 	if err := manager.cache.Get(ctx, key, &result); err != nil {
 		return nil, false
 	}
 
-	return result, true
+	return &result, true
 }
 
 // SetFileObjectToCache writes cached file object.
-func SetFileObjectToCache(ctx context.Context, objectId uint64, data interface{}, expiration time.Duration) error {
+func SetFileObjectToCache(ctx context.Context, objectId uint64, data *model.FileObject, expiration time.Duration) error {
 	manager := GetCacheManager()
 	key := BuildCacheKey(CacheKeyFileObject, objectId)
 	return manager.cache.Set(ctx, key, data, expiration)
@@ -230,6 +232,3 @@ func InvalidateFileObjectCache(ctx context.Context, objectId uint64) error {
 	key := BuildCacheKey(CacheKeyFileObject, objectId)
 	return manager.cache.Delete(ctx, key)
 }
-
-
-

@@ -1,10 +1,19 @@
 ﻿const DEFAULT_BASE = "http://localhost:8000/api";
 const FILE_PAGE_SIZE = 200;
 const TOKEN_STORAGE_KEY = "go_pan_token";
+const USER_PROFILE_STORAGE_KEY = "go_pan_user_profile";
 
 const state = {
   apiBase: (localStorage.getItem("go_pan_api_base") || DEFAULT_BASE).replace("http://localhost:8080/api", DEFAULT_BASE),
   token: sessionStorage.getItem(TOKEN_STORAGE_KEY) || "",
+  userProfile: (() => {
+    try {
+      const raw = localStorage.getItem(USER_PROFILE_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
+    }
+  })(),
   currentFolderId: 0,
   folderStack: [{ id: 0, name: "root" }],
   files: [],
@@ -33,6 +42,35 @@ function decodeJWT(token) {
   }
 }
 
+function normalizeUserProfile(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const id = raw.id ?? raw.ID ?? raw.user_id ?? raw.userId ?? 0;
+  if (!id) return null;
+  return {
+    id,
+    username: raw.user_name ?? raw.UserName ?? raw.username ?? "",
+    nickName: raw.nick_name ?? raw.NickName ?? raw.nickname ?? "",
+    email: raw.email ?? raw.Email ?? "",
+    avatarURL: raw.avatar_url ?? raw.AvatarURL ?? raw.avatar ?? "",
+    bio: raw.bio ?? raw.Bio ?? "",
+    isActive: Boolean(raw.is_active ?? raw.IsActive ?? false),
+    totalSpace: Number(raw.total_space ?? raw.TotalSpace ?? 0),
+    useSpace: Number(raw.use_space ?? raw.UseSpace ?? 0),
+    createdAt: raw.created_at ?? raw.CreatedAt ?? "",
+  };
+}
+
+function setUserProfile(raw) {
+  const profile = normalizeUserProfile(raw);
+  state.userProfile = profile;
+  if (profile) {
+    localStorage.setItem(USER_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+  } else {
+    localStorage.removeItem(USER_PROFILE_STORAGE_KEY);
+  }
+  updateAuthUI();
+}
+
 function getApiBase() {
   const input = $("apiBase");
   const base = input ? input.value.trim() : state.apiBase;
@@ -53,6 +91,7 @@ function setToken(token) {
   } else {
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
     localStorage.removeItem(TOKEN_STORAGE_KEY);
+    setUserProfile(null);
   }
   updateAuthUI();
 }
@@ -66,12 +105,15 @@ function updateAuthUI() {
   if (payload) {
     if (authState) authState.textContent = "Logged in";
     if (authToken) authToken.textContent = `${state.token.slice(0, 10)}...${state.token.slice(-6)}`;
-    if (authUser) authUser.textContent = `${payload.username || "用户"} (#${payload.user_id || "-"})`;
+    const userLabel = state.userProfile?.username || payload.username || "用户";
+    const userId = state.userProfile?.id || payload.user_id || "-";
+    if (authUser) authUser.textContent = `${userLabel} (#${userId})`;
   } else {
     if (authState) authState.textContent = "Not logged in";
     if (authToken) authToken.textContent = "-";
     if (authUser) authUser.textContent = "-";
   }
+  renderProfileIdentity();
 }
 
 function setStatus(el, message, isError = false) {
@@ -315,6 +357,9 @@ async function handleLogin() {
       throw new Error("登录响应缺少 token");
     }
     setToken(data.token);
+    if (data?.user) {
+      setUserProfile(data.user);
+    }
     setStatus(status, "Login successful.");
   } catch (err) {
     setStatus(status, err.message, true);
@@ -1650,6 +1695,514 @@ function initPreviewPage() {
   renderStoredSelection(previewSelected);
 }
 
+function formatDateTime(value) {
+  if (!value && value !== 0) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+}
+
+function formatExpireIn(expireAt) {
+  if (!expireAt || Number.isNaN(expireAt.getTime())) return "-";
+  const diff = expireAt.getTime() - Date.now();
+  if (diff <= 0) return "已过期";
+  const minutes = Math.floor(diff / 60000);
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return `${days}天${hours}小时`;
+  if (hours > 0) return `${hours}小时${mins}分钟`;
+  return `${Math.max(1, mins)}分钟`;
+}
+
+function renderProfileIdentity() {
+  const payload = decodeJWT(state.token);
+  const profile = state.userProfile;
+  const userId = $("profileUserId");
+  const userName = $("profileUserName");
+  const nickName = $("profileNickName");
+  const email = $("profileEmail");
+  const active = $("profileActive");
+  const totalSpace = $("profileTotalSpace");
+  const useSpace = $("profileUseSpace");
+  const issuedAt = $("profileIssuedAt");
+  const expireAt = $("profileExpireAt");
+  const expireIn = $("profileExpireIn");
+  const apiBase = $("profileApiBase");
+
+  if (apiBase) {
+    apiBase.textContent = getApiBase();
+  }
+
+  if (!payload) {
+    if (userId) userId.textContent = "-";
+    if (userName) userName.textContent = "-";
+    if (nickName) nickName.textContent = "-";
+    if (email) email.textContent = "-";
+    if (active) active.textContent = "未登录";
+    if (totalSpace) totalSpace.textContent = "-";
+    if (useSpace) useSpace.textContent = "-";
+    if (issuedAt) issuedAt.textContent = "-";
+    if (expireAt) expireAt.textContent = "-";
+    if (expireIn) expireIn.textContent = "-";
+    return;
+  }
+
+  const id = profile?.id || payload.user_id || "-";
+  const name = profile?.username || payload.username || "-";
+  const profileNickName = profile?.nickName || "-";
+  const profileEmail = profile?.email || "-";
+  const isActive = profile ? (profile.isActive ? "已激活" : "未激活") : "未知";
+  const iat = payload.iat ? new Date(payload.iat * 1000) : null;
+  const exp = payload.exp ? new Date(payload.exp * 1000) : null;
+
+  if (userId) userId.textContent = String(id);
+  if (userName) userName.textContent = name;
+  if (nickName) nickName.textContent = profileNickName;
+  if (email) email.textContent = profileEmail;
+  if (active) active.textContent = isActive;
+  if (totalSpace) totalSpace.textContent = formatSize(profile?.totalSpace ?? 0);
+  if (useSpace) useSpace.textContent = formatSize(profile?.useSpace ?? 0);
+  if (issuedAt) issuedAt.textContent = iat ? formatDateTime(iat) : "-";
+  if (expireAt) expireAt.textContent = exp ? formatDateTime(exp) : "-";
+  if (expireIn) expireIn.textContent = exp ? formatExpireIn(exp) : "-";
+}
+
+function applyProfileForm(profile) {
+  const nickName = $("profileEditNickName");
+  const email = $("profileEditEmail");
+  const avatar = $("profileEditAvatar");
+  const bio = $("profileEditBio");
+  if (nickName) nickName.value = profile?.nickName || "";
+  if (email) email.value = profile?.email || "";
+  if (avatar) avatar.value = profile?.avatarURL || "";
+  if (bio) bio.value = profile?.bio || "";
+}
+
+async function loadCurrentUserProfile({ silent = false } = {}) {
+  const status = $("profileStatus");
+  if (!state.token) {
+    if (status) setStatus(status, "请先登录后查看个人资料。", true);
+    return;
+  }
+  try {
+    if (status && !silent) {
+      setStatus(status, "正在加载个人资料...");
+    }
+    const data = await apiFetch("/user/me", { method: "GET" });
+    setUserProfile(data);
+    renderProfileIdentity();
+    applyProfileForm(state.userProfile);
+    if (status && !silent) {
+      setStatus(status, "资料已刷新。");
+    }
+  } catch (err) {
+    if (status) setStatus(status, err.message, true);
+  }
+}
+
+async function saveCurrentUserProfile() {
+  const status = $("profileSaveStatus");
+  if (!state.token) {
+    setStatus(status, "请先登录。", true);
+    return;
+  }
+  try {
+    setStatus(status, "正在保存...");
+    const payload = {
+      nick_name: $("profileEditNickName")?.value.trim() || "",
+      email: $("profileEditEmail")?.value.trim() || "",
+      avatar_url: $("profileEditAvatar")?.value.trim() || "",
+      bio: $("profileEditBio")?.value.trim() || "",
+    };
+    const data = await apiFetch("/user/me", {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    setUserProfile(data);
+    renderProfileIdentity();
+    applyProfileForm(state.userProfile);
+    setStatus(status, "保存成功。");
+    const mainStatus = $("profileStatus");
+    if (mainStatus) {
+      setStatus(mainStatus, "资料已更新。");
+    }
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+function renderActivityRows(items = []) {
+  const rows = $("activityRows");
+  if (!rows) return;
+  rows.innerHTML = "";
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `
+      <span>${item.date || "-"}</span>
+      <span>${item.upload_count || 0} / ${formatSize(item.upload_bytes || 0)}</span>
+      <span>${item.download_count || 0} / ${formatSize(item.download_bytes || 0)}</span>
+      <span>${item.delete_count || 0} / ${formatSize(item.delete_bytes || 0)}</span>
+      <span>${item.share_count || 0}</span>
+      <span>${formatSize((item.upload_bytes || 0) + (item.download_bytes || 0))}</span>
+    `;
+    rows.appendChild(row);
+  });
+}
+
+async function loadProfileActivitySummary(days = 7) {
+  const status = $("activityStatus");
+  if (!state.token) {
+    setStatus(status, "请先登录后查看活动统计。", true);
+    return;
+  }
+  try {
+    setStatus(status, "正在加载活动统计...");
+    const data = await apiFetch(`/user/activity/summary?days=${encodeURIComponent(days)}`, {
+      method: "GET",
+    });
+    renderActivityRows(data.items || []);
+
+    const setText = (id, value) => {
+      const el = $(id);
+      if (el) el.textContent = value;
+    };
+    setText("totalUploadCount", String(data.total_upload_count || 0));
+    setText("totalUploadBytes", formatSize(data.total_upload_bytes || 0));
+    setText("totalDeleteCount", String(data.total_delete_count || 0));
+    setText("totalDownloadCount", String(data.total_download_count || 0));
+    setText("totalDownloadBytes", formatSize(data.total_download_bytes || 0));
+    setText("totalShareCount", String(data.total_share_count || 0));
+    setStatus(status, `已加载最近 ${data.days || days} 天统计。`);
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+function initProfilePage() {
+  renderProfileIdentity();
+  const status = $("profileStatus");
+  const refreshBtn = $("profileRefreshBtn");
+  const reloadBtn = $("profileReloadBtn");
+  const saveBtn = $("profileSaveBtn");
+  const loadBtn = $("activityLoadBtn");
+  const daySelect = $("activityDays");
+
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", () => {
+      const days = Number(daySelect?.value || 7);
+      loadProfileActivitySummary(days);
+      if (status) {
+        setStatus(status, "统计已刷新。");
+      }
+    });
+  }
+  if (reloadBtn) {
+    reloadBtn.addEventListener("click", () => {
+      loadCurrentUserProfile();
+    });
+  }
+  if (saveBtn) {
+    saveBtn.addEventListener("click", saveCurrentUserProfile);
+  }
+
+  if (loadBtn) {
+    loadBtn.addEventListener("click", () => {
+      const days = Number(daySelect?.value || 7);
+      loadProfileActivitySummary(days);
+    });
+  }
+
+  applyProfileForm(state.userProfile);
+  loadCurrentUserProfile({ silent: true });
+  const days = Number(daySelect?.value || 7);
+  loadProfileActivitySummary(days);
+}
+
+function renderGridRows(container, columns, rows) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!rows || rows.length === 0) {
+    const row = document.createElement("div");
+    row.className = "row";
+    for (let i = 0; i < columns; i += 1) {
+      const span = document.createElement("span");
+      span.textContent = i === 0 ? "暂无数据" : "";
+      row.appendChild(span);
+    }
+    container.appendChild(row);
+    return;
+  }
+  rows.forEach((cells) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    cells.forEach((value) => {
+      const span = document.createElement("span");
+      span.textContent = value ?? "-";
+      row.appendChild(span);
+    });
+    container.appendChild(row);
+  });
+}
+
+function renderFavoriteRows(items = []) {
+  const rows = $("favoriteRows");
+  if (!rows) return;
+  rows.innerHTML = "";
+  if (items.length === 0) {
+    renderGridRows(rows, 6, []);
+    return;
+  }
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "row";
+    const values = [
+      String(item.file_id ?? "-"),
+      item.name || "-",
+      item.is_dir ? "目录" : "文件",
+      item.is_dir ? "-" : formatSize(item.size || 0),
+      formatDate(item.created_at),
+    ];
+    values.forEach((value) => {
+      const span = document.createElement("span");
+      span.textContent = value;
+      row.appendChild(span);
+    });
+
+    const action = document.createElement("span");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost mini-btn";
+    btn.textContent = "取消收藏";
+    btn.addEventListener("click", async () => {
+      const status = $("favoriteStatus");
+      try {
+        await apiFetch(`/user/favorites/${item.file_id}`, { method: "DELETE" });
+        setStatus(status, `已取消收藏 #${item.file_id}`);
+        loadFavorites();
+      } catch (err) {
+        setStatus(status, err.message, true);
+      }
+    });
+    action.appendChild(btn);
+    row.appendChild(action);
+    rows.appendChild(row);
+  });
+}
+
+async function loadFavorites() {
+  const status = $("favoriteStatus");
+  if (!state.token) {
+    setStatus(status, "请先登录。", true);
+    return;
+  }
+  try {
+    setStatus(status, "正在加载收藏...");
+    const data = await apiFetch("/user/favorites?limit=100", { method: "GET" });
+    renderFavoriteRows(data.items || []);
+    setStatus(status, `已加载 ${data.items?.length || 0} 条收藏。`);
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+async function addFavoriteFromSelection() {
+  const status = $("favoriteStatus");
+  const selection = resolveSingleSelection({ allowStored: true });
+  if (selection.error) {
+    setStatus(status, selection.error, true);
+    return;
+  }
+  try {
+    setStatus(status, "正在添加收藏...");
+    await apiFetch("/user/favorites", {
+      method: "POST",
+      body: JSON.stringify({ file_id: selection.item.id }),
+    });
+    setStatus(status, `收藏成功：${selection.item.name}`);
+    loadFavorites();
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+function renderRecentRows(items = []) {
+  const rows = $("recentRows");
+  if (!rows) return;
+  const mapped = items.map((item) => [
+    String(item.file_id ?? "-"),
+    item.name || "-",
+    item.source || "-",
+    String(item.access_count || 0),
+    formatDate(item.last_access_at),
+  ]);
+  renderGridRows(rows, 5, mapped);
+}
+
+async function loadRecent() {
+  const status = $("recentStatus");
+  if (!state.token) {
+    setStatus(status, "请先登录。", true);
+    return;
+  }
+  try {
+    setStatus(status, "正在加载最近访问...");
+    const data = await apiFetch("/user/recent?limit=100", { method: "GET" });
+    renderRecentRows(data.items || []);
+    setStatus(status, `已加载 ${data.items?.length || 0} 条最近访问。`);
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+function renderCommonDirRows(items = []) {
+  const rows = $("commonDirsRows");
+  if (!rows) return;
+  const mapped = items.map((item) => [
+    String(item.file_id ?? "-"),
+    item.name || "-",
+    String(item.access_count || 0),
+    formatDate(item.last_access_at),
+  ]);
+  renderGridRows(rows, 4, mapped);
+}
+
+async function loadCommonDirs() {
+  const status = $("commonDirsStatus");
+  if (!state.token) {
+    setStatus(status, "请先登录。", true);
+    return;
+  }
+  try {
+    setStatus(status, "正在加载常用目录...");
+    const data = await apiFetch("/user/common-dirs?limit=30", { method: "GET" });
+    renderCommonDirRows(data.items || []);
+    setStatus(status, `已加载 ${data.items?.length || 0} 个目录。`);
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+function initLibraryPage() {
+  const selected = $("librarySelected");
+  const refreshSelectionBtn = $("libraryRefreshSelectionBtn");
+  const addFavoriteBtn = $("favoriteAddBtn");
+  const favoriteListBtn = $("favoriteListBtn");
+  const recentListBtn = $("recentListBtn");
+  const commonDirsBtn = $("commonDirsBtn");
+
+  renderStoredSelection(selected);
+  if (refreshSelectionBtn) {
+    refreshSelectionBtn.addEventListener("click", () => renderStoredSelection(selected));
+  }
+  if (addFavoriteBtn) addFavoriteBtn.addEventListener("click", addFavoriteFromSelection);
+  if (favoriteListBtn) favoriteListBtn.addEventListener("click", loadFavorites);
+  if (recentListBtn) recentListBtn.addEventListener("click", loadRecent);
+  if (commonDirsBtn) commonDirsBtn.addEventListener("click", loadCommonDirs);
+
+  loadFavorites();
+  loadRecent();
+  loadCommonDirs();
+}
+
+function renderShareSourceRows(items = []) {
+  const rows = $("shareSourceRows");
+  const mapped = items.map((item) => [item.source || "-", String(item.count || 0)]);
+  renderGridRows(rows, 2, mapped);
+}
+
+function renderShareDailyRows(items = []) {
+  const rows = $("shareDailyRows");
+  const mapped = items.map((item) => [item.date || "-", String(item.count || 0)]);
+  renderGridRows(rows, 2, mapped);
+}
+
+function renderShareTopRows(items = []) {
+  const rows = $("shareTopRows");
+  const mapped = items.map((item) => [
+    item.share_id || "-",
+    String(item.file_id || "-"),
+    item.file_name || "-",
+    String(item.count || 0),
+  ]);
+  renderGridRows(rows, 4, mapped);
+}
+
+function renderShareLogRows(items = []) {
+  const rows = $("shareLogRows");
+  const mapped = items.map((item) => [
+    formatDate(item.accessed_at),
+    item.share_id || "-",
+    `${item.file_name || "-"} (#${item.file_id || "-"})`,
+    item.source || "-",
+    item.visitor_ip || "-",
+    item.referer || "-",
+  ]);
+  renderGridRows(rows, 6, mapped);
+}
+
+async function loadShareStats() {
+  const status = $("shareStatsStatus");
+  if (!state.token) {
+    setStatus(status, "请先登录。", true);
+    return;
+  }
+  const days = Number($("shareStatsDays")?.value || 30);
+  try {
+    setStatus(status, "正在加载分享统计...");
+    const data = await apiFetch(`/share/access/stats?days=${encodeURIComponent(days)}`, {
+      method: "GET",
+    });
+
+    const setText = (id, value) => {
+      const el = $(id);
+      if (el) el.textContent = value;
+    };
+    setText("shareVisitTotal", String(data.total_visits || 0));
+    setText("shareVisitUniqueIPs", String(data.unique_ips || 0));
+    setText("shareVisitWindow", `${data.days || days} 天`);
+
+    renderShareSourceRows(data.by_source || []);
+    renderShareDailyRows(data.daily || []);
+    renderShareTopRows(data.top_shares || []);
+    setStatus(status, "分享统计已刷新。");
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+async function loadShareLogs() {
+  const status = $("shareLogStatus");
+  if (!state.token) {
+    setStatus(status, "请先登录。", true);
+    return;
+  }
+  const limit = Number($("shareLogLimit")?.value || 50);
+  const shareID = $("shareLogShareId")?.value.trim() || "";
+  try {
+    setStatus(status, "正在加载访问日志...");
+    let query = `?limit=${encodeURIComponent(limit > 0 ? limit : 50)}`;
+    if (shareID) {
+      query += `&share_id=${encodeURIComponent(shareID)}`;
+    }
+    const data = await apiFetch(`/share/access/logs${query}`, { method: "GET" });
+    renderShareLogRows(data.items || []);
+    setStatus(status, `已加载 ${data.items?.length || 0} 条访问日志。`);
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+function initShareAnalyticsPage() {
+  const statsBtn = $("shareStatsLoadBtn");
+  const logsBtn = $("shareLogLoadBtn");
+  if (statsBtn) statsBtn.addEventListener("click", loadShareStats);
+  if (logsBtn) logsBtn.addEventListener("click", loadShareLogs);
+  loadShareStats();
+  loadShareLogs();
+}
+
 function initHomePage() {
   const pingBtn = $("pingBtn");
   if (!pingBtn) return;
@@ -1682,6 +2235,9 @@ function initPage() {
     share: initSharePage,
     recycle: initRecyclePage,
     tasks: initTasksPage,
+    profile: initProfilePage,
+    library: initLibraryPage,
+    "share-analytics": initShareAnalyticsPage,
     preview: initPreviewPage,
   };
   if (map[page]) {

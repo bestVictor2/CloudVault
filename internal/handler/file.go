@@ -1,4 +1,4 @@
-﻿package handler
+package handler
 
 import (
 	"Go_Pan/internal/dto"
@@ -199,6 +199,9 @@ func GetFileList(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "get file list failed: " + err.Error()})
 		return
 	}
+	if req.ParentID != nil && *req.ParentID != 0 {
+		_ = service.RecordRecentAccess(userID, *req.ParentID, "browse")
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"files":     files,
@@ -341,6 +344,7 @@ func PreviewFile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	_ = service.RecordRecentAccess(userID, fileID, "preview")
 
 	c.JSON(http.StatusOK, gin.H{"url": url})
 }
@@ -357,4 +361,3 @@ func ListDownloadTasks(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"tasks": tasks})
 }
-

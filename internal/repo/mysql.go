@@ -1,4 +1,4 @@
-﻿package repo
+package repo
 
 import (
 	"Go_Pan/config"
@@ -21,6 +21,10 @@ func autoMigrateAll(db *gorm.DB) {
 	db.AutoMigrate(&model.UploadSession{})
 	db.AutoMigrate(&model.FileShare{})
 	db.AutoMigrate(&model.DownloadTask{})
+	db.AutoMigrate(&model.UserActivityDaily{})
+	db.AutoMigrate(&model.UserFavorite{})
+	db.AutoMigrate(&model.UserRecent{})
+	db.AutoMigrate(&model.ShareAccessLog{})
 }
 
 // InitMysql initializes the main MySQL connection.
@@ -70,6 +74,3 @@ func InitMysqlTest() {
 	log.Println("init mysql success")
 	Db = db
 }
-
-
-

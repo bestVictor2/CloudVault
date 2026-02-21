@@ -1,7 +1,8 @@
-﻿package handler
+package handler
 
 import (
 	"Go_Pan/config"
+	"Go_Pan/internal/activity"
 	"Go_Pan/internal/dto"
 	"Go_Pan/internal/repo"
 	"Go_Pan/internal/service"
@@ -92,9 +93,13 @@ func MinioDownloadFile(c *gin.Context) {
 	c.Header("Content-Type", contentType)
 	c.Header("Content-Length", fmt.Sprintf("%d", info.Size))
 
-	if _, err := io.Copy(c.Writer, object); err != nil {
+	written, err := io.Copy(c.Writer, object)
+	if err != nil {
 		log.Println("download error:", err)
+		return
 	}
+	_ = service.RecordRecentAccess(userID, userFile.ID, "download")
+	_ = activity.Emit(c.Request.Context(), userID, activity.ActionDownload, userFile.ID, written)
 }
 
 // MinioDownloadURL returns a presigned download URL for MinIO.
@@ -159,6 +164,7 @@ func MinioDownloadURL(c *gin.Context) {
 		"name": name,
 		"size": fileObj.Size,
 	})
+	_ = service.RecordRecentAccess(userID, userFile.ID, "download_url")
 }
 
 // MultiPartFileInit initializes multipart upload.

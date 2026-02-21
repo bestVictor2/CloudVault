@@ -1,4 +1,4 @@
-﻿package router
+package router
 
 import (
 	"Go_Pan/internal/handler"
@@ -53,9 +53,21 @@ func InitRouter() *gin.Engine {
 		share := auth.Group("/share")
 		{
 			share.POST("/create", handler.CreateShareHandler)
+			share.GET("/access/logs", handler.GetShareAccessLogs)
+			share.GET("/access/stats", handler.GetShareAccessStats)
+		}
+		user := auth.Group("/user")
+		{
+			user.GET("/me", handler.GetCurrentUser)
+			user.PUT("/me", handler.UpdateCurrentUser)
+			user.GET("/favorites", handler.ListUserFavorites)
+			user.POST("/favorites", handler.AddUserFavorite)
+			user.DELETE("/favorites/:fileID", handler.RemoveUserFavorite)
+			user.GET("/recent", handler.ListUserRecent)
+			user.GET("/common-dirs", handler.ListUserCommonDirs)
+			user.GET("/activity/summary", handler.GetUserActivitySummary)
 		}
 		api.GET("/share/download/:shareID", handler.ShareDownload)
 	}
 	return r
 }
-

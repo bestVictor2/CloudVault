@@ -16,7 +16,7 @@ func CheckPwd(pwd string, password string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(password), []byte(pwd))
 	if err != nil {
 		return false
-	} else {
-		return true
 	}
+
+	return true
 }

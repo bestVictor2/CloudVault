@@ -1,4 +1,4 @@
-﻿package dto
+package dto
 
 import "mime/multipart"
 
@@ -45,7 +45,6 @@ type HttpOfflineDownloadRequest struct {
 	URL      string `json:"url" binding:"required"`
 	FileName string `json:"file_name" binding:"required"`
 }
-
 
 type URLUploadRequest struct {
 	URL      string `json:"url" binding:"required"`
@@ -128,5 +127,16 @@ type RestoreFileRequest struct {
 }
 
 type DeleteFileRequest struct {
+	FileID uint64 `json:"file_id" binding:"required"`
+}
+
+type UpdateUserProfileRequest struct {
+	NickName  *string `json:"nick_name"`
+	Email     *string `json:"email"`
+	AvatarURL *string `json:"avatar_url"`
+	Bio       *string `json:"bio"`
+}
+
+type FavoriteRequest struct {
 	FileID uint64 `json:"file_id" binding:"required"`
 }

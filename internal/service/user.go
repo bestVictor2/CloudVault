@@ -4,8 +4,12 @@ import (
 	"Go_Pan/internal/repo"
 	"Go_Pan/model"
 	"Go_Pan/utils"
+	"context"
 	"errors"
+	"time"
 )
+
+const userInfoCacheTTL = 5 * time.Minute
 
 // CreateUser hashes password and creates a user.
 func CreateUser(user *model.User) error {
@@ -18,6 +22,7 @@ func CreateUser(user *model.User) error {
 	if err := repo.Db.Create(user).Error; err != nil {
 		return err
 	}
+	_ = utils.SetUserInfoToCache(context.Background(), user.ID, user, userInfoCacheTTL)
 	return nil
 }
 
@@ -32,10 +37,15 @@ func FindIdByUsername(username string) (uint64, error) {
 
 // FindUserNameById returns username by ID.
 func FindUserNameById(userId uint64) (string, error) {
+	if cached, ok := utils.GetUserInfoFromCache(context.Background(), userId); ok && cached != nil {
+		return cached.UserName, nil
+	}
+
 	var user model.User
 	if err := repo.Db.Model(&model.User{}).Where("id = ?", userId).First(&user).Error; err != nil {
 		return "", err
 	}
+	_ = utils.SetUserInfoToCache(context.Background(), userId, &user, userInfoCacheTTL)
 	return user.UserName, nil
 }
 

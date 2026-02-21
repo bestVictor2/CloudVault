@@ -1,4 +1,4 @@
-﻿package model
+package model
 
 import (
 	"gorm.io/gorm"
@@ -14,6 +14,10 @@ type User struct {
 
 	Email string `gorm:"column:email;type:varchar(255);not null;unique"`
 
+	NickName  string `gorm:"column:nick_name;type:varchar(80);not null;default:''"`
+	AvatarURL string `gorm:"column:avatar_url;type:varchar(512);not null;default:''"`
+	Bio       string `gorm:"column:bio;type:varchar(500);not null;default:''"`
+
 	IsActive bool `gorm:"column:is_active;not null;default:false"`
 
 	TotalSpace uint64 `gorm:"column:total_space;not null;default:0"` // 容量管理
@@ -26,6 +30,3 @@ type User struct {
 func (User) TableName() string {
 	return "user_db"
 }
-
-
-

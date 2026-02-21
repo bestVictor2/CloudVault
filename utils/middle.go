@@ -1,9 +1,10 @@
 ﻿package utils
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 // AuthMiddleware verifies JWT and sets user context.
@@ -21,7 +22,7 @@ func AuthMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		claims, err := VerifyToken(tokenParts[1])
+		claims, err := VerifyToken(tokenParts[1]) // 解析 token
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			c.Abort()
@@ -32,6 +33,3 @@ func AuthMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-
-

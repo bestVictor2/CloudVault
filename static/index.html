@@ -25,6 +25,9 @@
         <a href="./pages/share.html">分享</a>
         <a href="./pages/recycle.html">回收站</a>
         <a href="./pages/tasks.html">任务</a>
+        <a href="./pages/profile.html">个人中心</a>
+        <a href="./pages/library.html">内容扩展</a>
+        <a href="./pages/share-analytics.html">分享统计</a>
         <a href="./pages/preview.html">预览</a>
       </nav>
       <div class="auth-bar">
@@ -42,12 +45,12 @@
         <div class="hero-card">
           <h2>前端控制台</h2>
           <p>
-            该界面覆盖后端全部 API，推荐按顺序完成：认证、文件、上传、分享、回收站、任务、预览。
+            该界面覆盖后端主要 API，并新增了个人中心与活动统计，可直接演示“内容横向扩展”能力。
           </p>
         </div>
         <div class="hero-card">
-          <h2>快速检查</h2>
-          <p>先验证 Token 是否有效，再进行上传或任务操作。</p>
+          <h2>分布式能力看板</h2>
+          <p>当前已接入：离线下载队列、用户活动事件流、MySQL 日统计 + Redis 实时统计。</p>
           <div class="actions">
             <button id="pingBtn" class="primary">检查 API</button>
           </div>
@@ -99,11 +102,43 @@
           </div>
         </div>
         <div class="panel">
+          <h3>个人中心</h3>
+          <p class="status">用户资料、登录会话、活动趋势统计。</p>
+          <div class="actions">
+            <a class="ghost" href="./pages/profile.html">进入个人中心</a>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>内容扩展</h3>
+          <p class="status">收藏、最近访问、常用目录。</p>
+          <div class="actions">
+            <a class="ghost" href="./pages/library.html">进入内容扩展</a>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>分享统计</h3>
+          <p class="status">分享访问记录与来源统计。</p>
+          <div class="actions">
+            <a class="ghost" href="./pages/share-analytics.html">进入分享统计</a>
+          </div>
+        </div>
+        <div class="panel">
           <h3>预览</h3>
           <p class="status">生成预览链接。</p>
           <div class="actions">
             <a class="ghost" href="./pages/preview.html">进入预览</a>
           </div>
+        </div>
+        <div class="panel full">
+          <h3>横向扩展方向（参考网盘产品常见能力）</h3>
+          <div class="roadmap-list">
+            <span class="badge">个人资料与空间画像</span>
+            <span class="badge">照片时间轴与智能分类</span>
+            <span class="badge">在线解压与格式预览增强</span>
+            <span class="badge">分享权限分级与访问审计</span>
+            <span class="badge">多端同步与备份策略</span>
+          </div>
+          <p class="note">你的优先级是先扩内容、后做底层分片/集群，这个方向是对的。</p>
         </div>
       </section>
     </main>

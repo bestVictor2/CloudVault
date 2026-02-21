@@ -486,6 +486,93 @@ button.warn {
   font-size: 12px;
 }
 
+.roadmap-list {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metric-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.metric-card strong {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.activity-table .row {
+  grid-template-columns: 1fr 1.3fr 1.3fr 1.3fr 0.8fr 1fr;
+}
+
+.library-table .row {
+  grid-template-columns: 0.9fr 2fr 0.8fr 0.9fr 1.2fr 0.9fr;
+  align-items: center;
+}
+
+.library-recent-table .row {
+  grid-template-columns: 0.8fr 1.6fr 0.8fr 0.6fr 1.2fr;
+  align-items: center;
+}
+
+.library-common-table .row {
+  grid-template-columns: 0.9fr 1.8fr 0.8fr 1.2fr;
+  align-items: center;
+}
+
+.share-source-table .row,
+.share-daily-table .row {
+  grid-template-columns: 1.4fr 0.8fr;
+  align-items: center;
+}
+
+.share-top-table .row {
+  grid-template-columns: 1.2fr 0.8fr 1.8fr 0.8fr;
+  align-items: center;
+}
+
+.share-log-table .row {
+  grid-template-columns: 1.2fr 1fr 1.2fr 0.9fr 0.9fr 1.8fr;
+  align-items: center;
+}
+
+.share-log-table .row span,
+.share-top-table .row span,
+.library-table .row span,
+.library-recent-table .row span,
+.library-common-table .row span {
+  word-break: break-all;
+  white-space: normal;
+}
+
+.mini-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
 .mono {
   font-family: "JetBrains Mono", monospace;
 }
@@ -521,6 +608,10 @@ button.warn {
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+
+  .metric-grid {
+    grid-template-columns: 1fr;
   }
 
   nav {

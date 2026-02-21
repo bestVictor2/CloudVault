@@ -11,17 +11,20 @@ import (
 )
 
 const (
-	ExchangeTasks = "download.exchange"
-	ExchangeRetry = "download.retry.exchange"
-	ExchangeDLQ   = "download.dlq.exchange"
+	ExchangeTasks    = "download.exchange"
+	ExchangeRetry    = "download.retry.exchange"
+	ExchangeDLQ      = "download.dlq.exchange"
+	ExchangeActivity = "activity.exchange"
 
-	QueueTasks = "download.queue"
-	QueueRetry = "download.retry.queue"
-	QueueDLQ   = "download.dlq.queue"
+	QueueTasks    = "download.queue"
+	QueueRetry    = "download.retry.queue"
+	QueueDLQ      = "download.dlq.queue"
+	QueueActivity = "activity.queue"
 
-	RoutingTask  = "download"
-	RoutingRetry = "download.retry"
-	RoutingDLQ   = "download.dlq"
+	RoutingTask     = "download"
+	RoutingRetry    = "download.retry"
+	RoutingDLQ      = "download.dlq"
+	RoutingActivity = "activity"
 )
 
 type Client struct {
@@ -114,6 +117,17 @@ func (c *Client) DeclareTopology() error {
 	); err != nil {
 		return err
 	}
+	if err := c.Channel.ExchangeDeclare(
+		ExchangeActivity,
+		"direct",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
 	if _, err := c.Channel.QueueDeclare(
 		QueueTasks,
 		true,
@@ -139,6 +153,16 @@ func (c *Client) DeclareTopology() error {
 	}
 	if _, err := c.Channel.QueueDeclare(
 		QueueDLQ,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if _, err := c.Channel.QueueDeclare(
+		QueueActivity,
 		true,
 		false,
 		false,
@@ -174,6 +198,15 @@ func (c *Client) DeclareTopology() error {
 	); err != nil {
 		return err
 	}
+	if err := c.Channel.QueueBind(
+		QueueActivity,
+		RoutingActivity,
+		ExchangeActivity,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -191,6 +224,10 @@ func (c *Client) PublishRetry(ctx context.Context, body []byte, delay time.Durat
 
 func (c *Client) PublishDLQ(ctx context.Context, body []byte) error {
 	return c.publish(ctx, ExchangeDLQ, RoutingDLQ, body, "")
+}
+
+func (c *Client) PublishActivity(ctx context.Context, body []byte) error {
+	return c.publish(ctx, ExchangeActivity, RoutingActivity, body, "")
 }
 
 func (c *Client) publish(ctx context.Context, exchange, key string, body []byte, expiration string) error {

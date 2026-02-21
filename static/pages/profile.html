@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Go Pan 个人中心</title>
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body data-page="profile">
+    <div class="backdrop">
+      <span class="orb orb-a"></span>
+      <span class="orb orb-b"></span>
+      <span class="orb orb-c"></span>
+    </div>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo"></div>
+        <h1>Go Pan</h1>
+      </div>
+      <nav>
+        <a href="../index.html">首页</a>
+        <a href="./auth.html">认证</a>
+        <a href="./files.html">文件</a>
+        <a href="./upload.html">上传</a>
+        <a href="./share.html">分享</a>
+        <a href="./recycle.html">回收站</a>
+        <a href="./tasks.html">任务</a>
+        <a class="active" href="./profile.html">个人中心</a>
+        <a href="./library.html">内容扩展</a>
+        <a href="./share-analytics.html">分享统计</a>
+        <a href="./preview.html">预览</a>
+      </nav>
+      <div class="auth-bar">
+        <input id="apiBase" type="text" value="" />
+        <button id="saveBase" class="ghost">设置 API</button>
+        <span class="auth-chip">状态：<strong id="authState">-</strong></span>
+        <span class="auth-chip">用户：<strong id="authUser">-</strong></span>
+        <span class="auth-chip">Token：<strong id="authToken">-</strong></span>
+        <button id="logoutBtn" class="ghost">退出</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="page-hero">
+        <div class="hero-card">
+          <h2>个人中心</h2>
+          <p>资料来自真实接口：`GET /api/user/me`，并可通过 `PUT /api/user/me` 修改。</p>
+        </div>
+        <div class="hero-card">
+          <h2>活动统计</h2>
+          <p>数据来自事件流聚合链路：业务事件 -> RabbitMQ -> Worker -> MySQL/Redis。</p>
+          <div class="actions">
+            <button id="profileReloadBtn" class="ghost">刷新资料</button>
+            <button id="profileRefreshBtn" class="primary">刷新统计</button>
+          </div>
+          <div id="profileStatus" class="status">待操作</div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel half">
+          <h3>账号信息</h3>
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span class="metric-label">用户 ID</span>
+              <strong id="profileUserId">-</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">用户名</span>
+              <strong id="profileUserName">-</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">昵称</span>
+              <strong id="profileNickName">-</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">邮箱</span>
+              <strong id="profileEmail">-</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">账号状态</span>
+              <strong id="profileActive">-</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">总空间</span>
+              <strong id="profileTotalSpace">-</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">已用空间</span>
+              <strong id="profileUseSpace">-</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">签发时间</span>
+              <strong id="profileIssuedAt">-</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">会话剩余</span>
+              <strong id="profileExpireIn">-</strong>
+            </div>
+          </div>
+          <p class="note">当前 API Base：<span id="profileApiBase" class="mono">-</span></p>
+        </div>
+
+        <div class="panel half">
+          <h3>编辑资料</h3>
+          <div class="field">
+            <label for="profileEditNickName">昵称</label>
+            <input id="profileEditNickName" type="text" placeholder="例如：Go Pan 用户" />
+          </div>
+          <div class="field">
+            <label for="profileEditEmail">邮箱</label>
+            <input id="profileEditEmail" type="email" placeholder="example@qq.com" />
+          </div>
+          <div class="field">
+            <label for="profileEditAvatar">头像 URL</label>
+            <input id="profileEditAvatar" type="url" placeholder="https://example.com/avatar.png" />
+          </div>
+          <div class="field">
+            <label for="profileEditBio">简介</label>
+            <textarea id="profileEditBio" placeholder="介绍一下你自己"></textarea>
+          </div>
+          <div class="actions">
+            <button id="profileSaveBtn" class="primary">保存资料</button>
+          </div>
+          <div id="profileSaveStatus" class="status">待操作</div>
+        </div>
+
+        <div class="panel full">
+          <div class="panel-header">
+            <div>
+              <h3>用户活动统计</h3>
+              <p class="status">默认展示最近 7 天，可切换窗口。</p>
+            </div>
+            <div class="actions">
+              <label for="activityDays">天数</label>
+              <select id="activityDays">
+                <option value="7">7 天</option>
+                <option value="14">14 天</option>
+                <option value="30">30 天</option>
+                <option value="60">60 天</option>
+              </select>
+              <button id="activityLoadBtn" class="secondary">加载统计</button>
+            </div>
+          </div>
+          <div class="metric-grid">
+            <div class="metric-card">
+              <span class="metric-label">上传次数</span>
+              <strong id="totalUploadCount">0</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">上传流量</span>
+              <strong id="totalUploadBytes">0 B</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">删除次数</span>
+              <strong id="totalDeleteCount">0</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">下载次数</span>
+              <strong id="totalDownloadCount">0</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">下载流量</span>
+              <strong id="totalDownloadBytes">0 B</strong>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">分享次数</span>
+              <strong id="totalShareCount">0</strong>
+            </div>
+          </div>
+          <div class="table activity-table">
+            <div class="row header">
+              <span>日期</span>
+              <span>上传</span>
+              <span>下载</span>
+              <span>删除</span>
+              <span>分享</span>
+              <span>流量</span>
+            </div>
+            <div id="activityRows" class="rows"></div>
+          </div>
+          <div id="activityStatus" class="status">待操作</div>
+        </div>
+      </section>
+    </main>
+
+    <script src="../app.js"></script>
+  </body>
+</html>

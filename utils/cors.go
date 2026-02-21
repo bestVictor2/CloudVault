@@ -12,7 +12,7 @@ func CORSMiddleware() gin.HandlerFunc {
 		origin := c.GetHeader("Origin")
 		if origin != "" {
 			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Vary", "Origin")
+			c.Header("Vary", "Origin") // 不同 origin 缓存结果不同
 		} else {
 			c.Header("Access-Control-Allow-Origin", "*")
 		}
@@ -27,4 +27,3 @@ func CORSMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-

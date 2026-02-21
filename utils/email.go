@@ -34,6 +34,7 @@ func SendActivateMail(to, link string) error {
 
 	addr := host + ":" + port
 	auth := smtp.PlainAuth("", user, pass, host)
+	// tls STARTTLS 可选
 	tlsConfig := &tls.Config{ServerName: host}
 	useTLS := strings.EqualFold(os.Getenv("SMTP_TLS"), "true") ||
 		os.Getenv("SMTP_TLS") == "1" ||

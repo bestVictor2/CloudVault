@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Go Pan 内容扩展</title>
+    <link rel="stylesheet" href="../styles.css" />
+  </head>
+  <body data-page="library">
+    <div class="backdrop">
+      <span class="orb orb-a"></span>
+      <span class="orb orb-b"></span>
+      <span class="orb orb-c"></span>
+    </div>
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo"></div>
+        <h1>Go Pan</h1>
+      </div>
+      <nav>
+        <a href="../index.html">首页</a>
+        <a href="./auth.html">认证</a>
+        <a href="./files.html">文件</a>
+        <a href="./upload.html">上传</a>
+        <a href="./share.html">分享</a>
+        <a href="./recycle.html">回收站</a>
+        <a href="./tasks.html">任务</a>
+        <a href="./profile.html">个人中心</a>
+        <a class="active" href="./library.html">内容扩展</a>
+        <a href="./share-analytics.html">分享统计</a>
+        <a href="./preview.html">预览</a>
+      </nav>
+      <div class="auth-bar">
+        <input id="apiBase" type="text" value="" />
+        <button id="saveBase" class="ghost">设置 API</button>
+        <span class="auth-chip">状态：<strong id="authState">-</strong></span>
+        <span class="auth-chip">用户：<strong id="authUser">-</strong></span>
+        <span class="auth-chip">Token：<strong id="authToken">-</strong></span>
+        <button id="logoutBtn" class="ghost">退出</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="page-hero">
+        <div class="hero-card">
+          <h2>收藏 / 最近访问 / 常用目录</h2>
+          <p>这部分是横向内容扩展，覆盖日常网盘高频能力，适合快速提升项目完整度。</p>
+        </div>
+        <div class="hero-card">
+          <h2>快速收藏</h2>
+          <p>可直接读取“文件页最近选择项”并收藏。</p>
+          <div class="field">
+            <label>最近选择</label>
+            <div id="librarySelected" class="selection-pill">未选择</div>
+          </div>
+          <div class="actions">
+            <button id="libraryRefreshSelectionBtn" class="ghost">刷新选择</button>
+            <button id="favoriteAddBtn" class="primary">收藏当前选择</button>
+            <a class="ghost" href="./files.html">打开文件管理</a>
+          </div>
+          <div id="favoriteStatus" class="status">待操作</div>
+        </div>
+      </section>
+
+      <section class="grid">
+        <div class="panel full">
+          <div class="panel-header">
+            <h3>收藏</h3>
+            <div class="actions">
+              <button id="favoriteListBtn" class="secondary">刷新</button>
+            </div>
+          </div>
+          <div class="table library-table">
+            <div class="row header">
+              <span>文件 ID</span>
+              <span>名称</span>
+              <span>类型</span>
+              <span>大小</span>
+              <span>收藏时间</span>
+              <span>操作</span>
+            </div>
+            <div id="favoriteRows" class="rows"></div>
+          </div>
+        </div>
+
+        <div class="panel half">
+          <div class="panel-header">
+            <h3>最近访问</h3>
+            <div class="actions">
+              <button id="recentListBtn" class="secondary">刷新</button>
+            </div>
+          </div>
+          <div class="table library-recent-table">
+            <div class="row header">
+              <span>文件 ID</span>
+              <span>名称</span>
+              <span>来源</span>
+              <span>次数</span>
+              <span>最后访问</span>
+            </div>
+            <div id="recentRows" class="rows"></div>
+          </div>
+          <div id="recentStatus" class="status">待操作</div>
+        </div>
+
+        <div class="panel half">
+          <div class="panel-header">
+            <h3>常用目录</h3>
+            <div class="actions">
+              <button id="commonDirsBtn" class="secondary">刷新</button>
+            </div>
+          </div>
+          <div class="table library-common-table">
+            <div class="row header">
+              <span>目录 ID</span>
+              <span>名称</span>
+              <span>访问次数</span>
+              <span>最后访问</span>
+            </div>
+            <div id="commonDirsRows" class="rows"></div>
+          </div>
+          <div id="commonDirsStatus" class="status">待操作</div>
+        </div>
+      </section>
+    </main>
+
+    <script src="../app.js"></script>
+  </body>
+</html>

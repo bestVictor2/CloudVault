@@ -1,6 +1,7 @@
-﻿package service
+package service
 
 import (
+	"Go_Pan/internal/activity"
 	"Go_Pan/internal/repo"
 	"Go_Pan/model"
 	"Go_Pan/utils"
@@ -60,6 +61,7 @@ func CreateShare(userID, fileID uint64, expireDays int, needCode bool) (*model.F
 		log.Println("[CreateShare] set key =", key)
 		repo.Redis.Set(context.Background(), key, value, ttl)
 	}
+	_ = activity.Emit(context.Background(), userID, activity.ActionShare, fileID, 0)
 
 	return share, nil
 }
@@ -104,6 +106,3 @@ func CheckShare(shareID, extractCode string) (*model.FileShare, error) {
 
 	return &share, nil
 }
-
-
-
