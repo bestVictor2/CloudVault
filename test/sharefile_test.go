@@ -1,9 +1,9 @@
 package test
 
 import (
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/service"
-	"Go_Pan/model"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
+	"CloudVault/model"
 	"golang.org/x/net/context"
 	"testing"
 	"time"

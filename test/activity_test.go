@@ -1,10 +1,10 @@
 package test
 
 import (
-	"Go_Pan/internal/activity"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/service"
-	"Go_Pan/model"
+	"CloudVault/internal/activity"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
+	"CloudVault/model"
 	"context"
 	"fmt"
 	"testing"

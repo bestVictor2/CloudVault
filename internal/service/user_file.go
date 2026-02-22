@@ -1,11 +1,11 @@
 package service
 
 import (
-	"Go_Pan/internal/activity"
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/repo"
-	"Go_Pan/model"
-	"Go_Pan/utils"
+	"CloudVault/internal/activity"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/repo"
+	"CloudVault/model"
+	"CloudVault/utils"
 	"context"
 	"errors"
 	"fmt"

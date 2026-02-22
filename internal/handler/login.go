@@ -1,10 +1,10 @@
 package handler
 
 import (
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/service"
-	"Go_Pan/model"
-	"Go_Pan/utils"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/service"
+	"CloudVault/model"
+	"CloudVault/utils"
 	"net/http"
 
 	"github.com/gin-gonic/gin"

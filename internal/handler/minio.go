@@ -1,13 +1,13 @@
 package handler
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/activity"
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/service"
-	"Go_Pan/model"
-	"Go_Pan/utils"
+	"CloudVault/config"
+	"CloudVault/internal/activity"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
+	"CloudVault/model"
+	"CloudVault/utils"
 	"fmt"
 	"io"
 	"log"

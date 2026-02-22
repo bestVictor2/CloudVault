@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"Go_Pan/internal/service"
+	"CloudVault/internal/service"
 	"net/http"
 	"strconv"
 	"strings"

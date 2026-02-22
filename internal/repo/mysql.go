@@ -1,8 +1,8 @@
 package repo
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/model"
+	"CloudVault/config"
+	"CloudVault/model"
 	"fmt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"

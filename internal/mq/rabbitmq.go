@@ -1,7 +1,7 @@
 package mq
 
 import (
-	"Go_Pan/config"
+	"CloudVault/config"
 	"context"
 	"fmt"
 	"sync"

@@ -1,9 +1,9 @@
 package service
 
 import (
-	"Go_Pan/internal/repo"
-	"Go_Pan/model"
-	"Go_Pan/utils"
+	"CloudVault/internal/repo"
+	"CloudVault/model"
+	"CloudVault/utils"
 	"context"
 	"errors"
 	"time"

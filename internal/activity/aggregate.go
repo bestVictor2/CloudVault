@@ -1,8 +1,8 @@
 package activity
 
 import (
-	"Go_Pan/internal/repo"
-	"Go_Pan/model"
+	"CloudVault/internal/repo"
+	"CloudVault/model"
 	"context"
 	"strconv"
 	"time"

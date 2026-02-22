@@ -1,10 +1,10 @@
-﻿package main
+package main
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/storage"
-	"Go_Pan/router"
+	"CloudVault/config"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/storage"
+	"CloudVault/router"
 	"context"
 	"log"
 )

@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/service"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/service"
 	"errors"
 	"net/http"
 	"strconv"

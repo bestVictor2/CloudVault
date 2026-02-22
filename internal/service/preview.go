@@ -1,10 +1,10 @@
-﻿package service
+package service
 
 import (
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/storage"
-	"Go_Pan/model"
-	"Go_Pan/utils"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/storage"
+	"CloudVault/model"
+	"CloudVault/utils"
 	"context"
 	"errors"
 	"fmt"

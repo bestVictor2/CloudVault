@@ -1,12 +1,12 @@
 package service
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/storage"
-	"Go_Pan/model"
-	"Go_Pan/utils"
+	"CloudVault/config"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/storage"
+	"CloudVault/model"
+	"CloudVault/utils"
 	"bytes"
 	"errors"
 	"fmt"

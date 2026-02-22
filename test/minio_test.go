@@ -1,11 +1,11 @@
-﻿package test
+package test
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/service"
-	"Go_Pan/internal/storage"
-	"Go_Pan/model"
+	"CloudVault/config"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
+	"CloudVault/internal/storage"
+	"CloudVault/model"
 	"context"
 	"fmt"
 	"os"
@@ -104,7 +104,7 @@ func TestMinioUploadFileRepairMissingObject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tmp, err := os.CreateTemp("", "go_pan_minio_upload_*.txt")
+	tmp, err := os.CreateTemp("", "CloudVault_minio_upload_*.txt")
 	if err != nil {
 		t.Fatal(err)
 	}

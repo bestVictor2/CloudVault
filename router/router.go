@@ -1,8 +1,8 @@
 package router
 
 import (
-	"Go_Pan/internal/handler"
-	"Go_Pan/utils"
+	"CloudVault/internal/handler"
+	"CloudVault/utils"
 
 	"github.com/gin-gonic/gin"
 )

@@ -1,7 +1,7 @@
-﻿package repo
+package repo
 
 import (
-	"Go_Pan/config"
+	"CloudVault/config"
 	"fmt"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"

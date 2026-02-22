@@ -1,4 +1,4 @@
-﻿# CloudVault
+# CloudVault
 
 CloudVault 是一个前后端分离的个人网盘系统，覆盖上传、下载、分享、回收站、离线下载、预览与用户行为统计等核心能力。  
 后端基于 Go + Gin，前端为静态页面，适合作为个人项目、课程设计或网盘类系统的基础模板。
@@ -66,7 +66,7 @@ CloudVault/
 | 组件 | 环境变量 | 默认值 |
 | --- | --- | --- |
 | JWT | `JWT_SECRET` | `l=ax+b` |
-| MySQL | `DB_HOST/DB_PORT/DB_USER/DB_PASS/DB_NAME` | `localhost/3306/root/root/Go_Pan` |
+| MySQL | `DB_HOST/DB_PORT/DB_USER/DB_PASS/DB_NAME` | `localhost/3306/root/root/CloudVault` |
 | Redis | `REDIS_HOST/REDIS_PORT/REDIS_PASSWORD` | `localhost/6379/(空)` |
 | MinIO | `MINIO_HOST/MINIO_PORT/MINIO_USERNAME/MINIO_PASSWORD/BUCKET_NAME` | `localhost/9000/minioadmin/minioadmin/netdisk` |
 | RabbitMQ | `RABBITMQ_URL` 或 `RABBITMQ_HOST/PORT/USER/PASSWORD/VHOST` | 自动拼装或 `localhost/5672/guest/guest//` |

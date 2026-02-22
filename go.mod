@@ -1,4 +1,4 @@
-module Go_Pan
+module CloudVault
 
 go 1.24.0
 

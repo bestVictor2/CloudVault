@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"Go_Pan/config"
+	"CloudVault/config"
 	"errors"
 	"log"
 	"time"

@@ -1,9 +1,9 @@
-﻿package service
+package service
 
 import (
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/repo"
-	"Go_Pan/model"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/repo"
+	"CloudVault/model"
 	"fmt"
 )
 

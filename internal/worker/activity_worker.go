@@ -1,9 +1,9 @@
 package worker
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/activity"
-	"Go_Pan/internal/mq"
+	"CloudVault/config"
+	"CloudVault/internal/activity"
+	"CloudVault/internal/mq"
 	"context"
 	"encoding/json"
 	"errors"

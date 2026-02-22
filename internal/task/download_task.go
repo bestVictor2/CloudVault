@@ -1,13 +1,13 @@
 package task
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/activity"
-	"Go_Pan/internal/mq"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/service"
-	"Go_Pan/model"
-	"Go_Pan/utils"
+	"CloudVault/config"
+	"CloudVault/internal/activity"
+	"CloudVault/internal/mq"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
+	"CloudVault/model"
+	"CloudVault/utils"
 	"context"
 	"encoding/json"
 	"time"

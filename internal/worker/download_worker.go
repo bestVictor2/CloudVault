@@ -1,12 +1,12 @@
-﻿package worker
+package worker
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/mq"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/service"
-	"Go_Pan/internal/task"
-	"Go_Pan/model"
+	"CloudVault/config"
+	"CloudVault/internal/mq"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
+	"CloudVault/internal/task"
+	"CloudVault/model"
 	"context"
 	"encoding/json"
 	"errors"

@@ -1,9 +1,9 @@
 package test
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/storage"
+	"CloudVault/config"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/storage"
 	"log"
 	"os"
 	"testing"

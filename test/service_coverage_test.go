@@ -1,15 +1,15 @@
-﻿package test
+package test
 
 import (
-	"Go_Pan/config"
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/mq"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/service"
-	"Go_Pan/internal/storage"
-	"Go_Pan/internal/task"
-	"Go_Pan/internal/worker"
-	"Go_Pan/model"
+	"CloudVault/config"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/mq"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
+	"CloudVault/internal/storage"
+	"CloudVault/internal/task"
+	"CloudVault/internal/worker"
+	"CloudVault/model"
 	"bytes"
 	"context"
 	"fmt"

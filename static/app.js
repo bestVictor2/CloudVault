@@ -1,10 +1,10 @@
-﻿const DEFAULT_BASE = "http://localhost:8000/api";
+const DEFAULT_BASE = "http://localhost:8000/api";
 const FILE_PAGE_SIZE = 200;
-const TOKEN_STORAGE_KEY = "go_pan_token";
-const USER_PROFILE_STORAGE_KEY = "go_pan_user_profile";
+const TOKEN_STORAGE_KEY = "CloudVault_token";
+const USER_PROFILE_STORAGE_KEY = "CloudVault_user_profile";
 
 const state = {
-  apiBase: (localStorage.getItem("go_pan_api_base") || DEFAULT_BASE).replace("http://localhost:8080/api", DEFAULT_BASE),
+  apiBase: (localStorage.getItem("CloudVault_api_base") || DEFAULT_BASE).replace("http://localhost:8080/api", DEFAULT_BASE),
   token: sessionStorage.getItem(TOKEN_STORAGE_KEY) || "",
   userProfile: (() => {
     try {
@@ -79,7 +79,7 @@ function getApiBase() {
 
 function saveBase() {
   state.apiBase = getApiBase();
-  localStorage.setItem("go_pan_api_base", state.apiBase);
+  localStorage.setItem("CloudVault_api_base", state.apiBase);
 }
 
 function setToken(token) {
@@ -146,12 +146,12 @@ function saveLastSelection(file) {
     is_dir: Boolean(file.is_dir),
     parent_id: file.parent_id || 0,
   };
-  localStorage.setItem("go_pan_last_selection", JSON.stringify(payload));
+  localStorage.setItem("CloudVault_last_selection", JSON.stringify(payload));
 }
 
 function loadLastSelection() {
   try {
-    const raw = localStorage.getItem("go_pan_last_selection");
+    const raw = localStorage.getItem("CloudVault_last_selection");
     if (!raw) return null;
     return JSON.parse(raw);
   } catch (err) {
@@ -164,14 +164,14 @@ function saveLastFolder() {
   const path =
       stack.length <= 1 ? "/" : `/${stack.slice(1).map((item) => item.name).join("/")}`;
   localStorage.setItem(
-      "go_pan_last_folder",
+      "CloudVault_last_folder",
       JSON.stringify({ id: state.currentFolderId || 0, path })
   );
 }
 
 function loadLastFolder() {
   try {
-    const raw = localStorage.getItem("go_pan_last_folder");
+    const raw = localStorage.getItem("CloudVault_last_folder");
     if (!raw) return null;
     return JSON.parse(raw);
   } catch (err) {

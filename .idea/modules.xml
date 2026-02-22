@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/Go_Pan.iml" filepath="$PROJECT_DIR$/.idea/Go_Pan.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/CloudVault.iml" filepath="$PROJECT_DIR$/.idea/CloudVault.iml" />
     </modules>
   </component>
 </project>

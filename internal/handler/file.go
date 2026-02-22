@@ -1,11 +1,11 @@
 package handler
 
 import (
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/service"
-	"Go_Pan/internal/storage"
-	"Go_Pan/internal/task"
-	"Go_Pan/utils"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/service"
+	"CloudVault/internal/storage"
+	"CloudVault/internal/task"
+	"CloudVault/utils"
 	"archive/zip"
 	"fmt"
 	"io"

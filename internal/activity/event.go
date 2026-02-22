@@ -1,8 +1,8 @@
 package activity
 
 import (
-	"Go_Pan/internal/mq"
-	"Go_Pan/utils"
+	"CloudVault/internal/mq"
+	"CloudVault/utils"
 	"context"
 	"encoding/json"
 	"fmt"

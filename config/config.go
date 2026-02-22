@@ -1,4 +1,4 @@
-﻿package config
+package config
 
 import (
 	"fmt"
@@ -166,7 +166,7 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 func InitConfig() {
 	bucketNameTest := getEnv("BUCKET_NAME_TEST", "")
 	if bucketNameTest == "" {
-		bucketNameTest = getEnv("BUCKET_NAMETEST", "go-pan-test")
+		bucketNameTest = getEnv("BUCKET_NAMETEST", "CloudVault-test")
 	}
 	rabbitHost := getEnv("RABBITMQ_HOST", "localhost")
 	rabbitPort := getEnv("RABBITMQ_PORT", "5672")
@@ -194,8 +194,8 @@ func InitConfig() {
 		DBPort:                    getEnv("DB_PORT", "3306"),
 		DBUser:                    getEnv("DB_USER", "root"),
 		DBPass:                    getEnv("DB_PASS", "root"),
-		DBName:                    getEnv("DB_NAME", "Go_Pan"),
-		DBNameTest:                getEnv("DB_NAME_TEST", "Go_Pan_Test"),
+		DBName:                    getEnv("DB_NAME", "CloudVault"),
+		DBNameTest:                getEnv("DB_NAME_TEST", "CloudVault_Test"),
 		RedisHost:                 getEnv("REDIS_HOST", "localhost"),
 		RedisPort:                 getEnv("REDIS_PORT", "6379"),
 		RedisPassword:             getEnv("REDIS_PASSWORD", ""),

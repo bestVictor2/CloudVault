@@ -1,11 +1,11 @@
 package handler
 
 import (
-	"Go_Pan/internal/dto"
-	"Go_Pan/internal/repo"
-	"Go_Pan/internal/service"
-	"Go_Pan/model"
-	"Go_Pan/utils"
+	"CloudVault/internal/dto"
+	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
+	"CloudVault/model"
+	"CloudVault/utils"
 	"encoding/json"
 	"errors"
 	"net/http"
