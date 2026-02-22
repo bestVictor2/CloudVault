@@ -45,7 +45,7 @@ func HttpOfflineDownload(c *gin.Context) {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
-	if err := service.ValidateDownloadSourceURL(req.URL); err != nil {
+	if err := service.ValidateDownloadSourceURL(req.URL); err != nil { // 校验下载的 url 是否合法
 		msg := err.Error()
 		if msg == "host not allowed" || msg == "ip not allowed" {
 			msg = msg + "; for local/private testing set DOWNLOAD_ALLOW_PRIVATE=true"
@@ -72,9 +72,9 @@ func UploadFileByURL(c *gin.Context) {
 		return
 	}
 	userID := c.MustGet("user_id").(uint64)
-	fileName := strings.TrimSpace(req.FileName)
+	fileName := strings.TrimSpace(req.FileName) // trimspace 函数作用移除前后空白字符
 	if fileName == "" {
-		fileName = inferFileNameFromURL(req.URL)
+		fileName = inferFileNameFromURL(req.URL) // 从 url 中提取
 	}
 	if fileName == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file_name required"})
@@ -155,7 +155,7 @@ func DownloadArchive(c *gin.Context) {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		object, _, err := storage.Default.GetObject(
+		object, _, err := storage.Default.GetObject( // 获取文件
 			c.Request.Context(),
 			entry.FileObj.BucketName,
 			entry.FileObj.ObjectName,
@@ -164,13 +164,13 @@ func DownloadArchive(c *gin.Context) {
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		writer, err := zipWriter.Create(entry.ZipPath)
+		writer, err := zipWriter.Create(entry.ZipPath) // 写入路径信息
 		if err != nil {
 			_ = object.Close()
 			c.Status(http.StatusInternalServerError)
 			return
 		}
-		if _, err := io.Copy(writer, object); err != nil {
+		if _, err := io.Copy(writer, object); err != nil { // 流式写入
 			_ = object.Close()
 			c.Status(http.StatusInternalServerError)
 			return
