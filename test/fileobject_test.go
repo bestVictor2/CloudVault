@@ -16,13 +16,13 @@ import (
 	"github.com/minio/minio-go/v7"
 )
 
-// 清理测试数据
+//
 
 func cleanFileObjectTables(t *testing.T) {
-	// 临时禁用外键检
+	//
 	repo.Db.Exec("SET FOREIGN_KEY_CHECKS = 0")
 
-	// 按照外键依赖关系的顺序删除表数据
+	//
 	tables := []string{"file_share", "file_chunk", "upload_session", "user_file", "file_object", "user_db"}
 	for _, table := range tables {
 		if err := repo.Db.Exec("DELETE FROM " + table).Error; err != nil {
@@ -30,7 +30,7 @@ func cleanFileObjectTables(t *testing.T) {
 		}
 	}
 
-	// 重新启用外键检
+	//
 	repo.Db.Exec("SET FOREIGN_KEY_CHECKS = 1")
 }
 
@@ -49,7 +49,7 @@ func createFileObjectTestUser(t *testing.T, prefix string) *model.User {
 	return user
 }
 
-// 测试BuildObjectName
+// BuildObjectName
 func TestBuildObjectName(t *testing.T) {
 	username := "testuser"
 	hash := "test_hash_123"
@@ -60,7 +60,7 @@ func TestBuildObjectName(t *testing.T) {
 	}
 }
 
-// 测试CreateFilesObject
+// CreateFilesObject
 func TestCreateFilesObject(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -84,7 +84,7 @@ func TestCreateFilesObject(t *testing.T) {
 	}
 }
 
-// 测试GetFileByObject
+// GetFileByObject
 func TestGetFileByObject(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -103,7 +103,7 @@ func TestGetFileByObject(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 通过bucket和objectName获取文件对象
+	// bucketobjectName
 	found, err := service.GetFileByObject(fileObj.BucketName, fileObj.ObjectName)
 	if err != nil {
 		t.Fatalf("GetFileByObject failed: %v", err)
@@ -114,7 +114,7 @@ func TestGetFileByObject(t *testing.T) {
 	}
 }
 
-// 测试GetFileObjectByHash
+// GetFileObjectByHash
 func TestGetFileObjectByHash(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -133,7 +133,7 @@ func TestGetFileObjectByHash(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 通过hash获取文件对象
+	// hash
 	found, err := service.GetFileObjectByHash(fileObj.Hash)
 	if err != nil {
 		t.Fatalf("GetFileObjectByHash failed: %v", err)
@@ -144,7 +144,7 @@ func TestGetFileObjectByHash(t *testing.T) {
 	}
 }
 
-// 测试GetFileObjectById
+// GetFileObjectById
 func TestGetFileObjectById(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -163,7 +163,7 @@ func TestGetFileObjectById(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 通过ID获取文件对象
+	// ID
 	found, err := service.GetFileObjectById(fileObj.ID)
 	if err != nil {
 		t.Fatalf("GetFileObjectById failed: %v", err)
@@ -174,7 +174,7 @@ func TestGetFileObjectById(t *testing.T) {
 	}
 }
 
-// 测试IncreaseRefCount
+// IncreaseRefCount
 func TestIncreaseRefCount(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -193,12 +193,12 @@ func TestIncreaseRefCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 增加引用计数
+	//
 	if err := service.IncreaseRefCount(fileObj.ID); err != nil {
 		t.Fatalf("IncreaseRefCount failed: %v", err)
 	}
 
-	// 验证引用计数已增
+	//
 	found, err := service.GetFileObjectById(fileObj.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -209,13 +209,13 @@ func TestIncreaseRefCount(t *testing.T) {
 	}
 }
 
-// 测试 FastUpload - 文件已存在（秒传）
+// FastUpload - ?
 func TestFastUploadInstant(t *testing.T) {
 	cleanFileObjectTables(t)
 
 	user := createFileObjectTestUser(t, "fast_upload_user")
 
-	// 创建文件对象
+	//
 	fileObj := &model.FileObject{
 		UserID:     user.ID,
 		Hash:       "fast_upload_hash",
@@ -239,7 +239,7 @@ func TestFastUploadInstant(t *testing.T) {
 		t.Fatalf("put object failed: %v", err)
 	}
 
-	// 创建父目
+	//
 	req := &dto.UploadFileByHashRequest{
 		UserId:   user.ID,
 		ParentId: 0,
@@ -261,13 +261,13 @@ func TestFastUploadInstant(t *testing.T) {
 	}
 }
 
-// 测试FastUpload - 文件不存
+// FastUpload -
 func TestFastUploadNotInstant(t *testing.T) {
 	cleanFileObjectTables(t)
 
 	user := createFileObjectTestUser(t, "fast_upload_user2")
 
-	// 创建父目
+	//
 	var parentID uint64 = 0
 
 	req := &dto.UploadFileByHashRequest{
@@ -294,7 +294,7 @@ func TestFastUploadNotInstant(t *testing.T) {
 	}
 }
 
-// 测试 FastUpload - 哈希命中但大小不一致时，必须回落普通上传
+// FastUpload - ?
 func TestFastUploadSizeMismatchFallback(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -345,7 +345,7 @@ func TestFastUploadSizeMismatchFallback(t *testing.T) {
 	}
 }
 
-// 测试 FastUpload - 仅有数据库记录但对象不存在时，必须回落普通上传
+// FastUpload - ?
 func TestFastUploadObjectMissingFallback(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -391,7 +391,7 @@ func TestFastUploadObjectMissingFallback(t *testing.T) {
 	}
 }
 
-// 测试CreateUploadSession
+// CreateUploadSession
 func TestCreateUploadSession(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -410,7 +410,7 @@ func TestCreateUploadSession(t *testing.T) {
 		t.Fatalf("CreateUploadSession failed: %v", err)
 	}
 
-	// 验证上传会话已创
+	//
 	var session model.UploadSession
 	if err := repo.Db.Where("file_hash = ?", req.Hash).First(&session).Error; err != nil {
 		t.Fatalf("failed to find upload session: %v", err)
@@ -421,16 +421,17 @@ func TestCreateUploadSession(t *testing.T) {
 	}
 }
 
-// 测试CompleteFile - 存在脏hash记录时可修复对象并完成上
+// CompleteFile - hash
 func TestCompleteFileRepairStaleObject(t *testing.T) {
 	cleanFileObjectTables(t)
 
 	user := createFileObjectTestUser(t, "repair_stale_obj")
+	emptyHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	fileObj := &model.FileObject{
 		UserID:     user.ID,
-		Hash:       "repair_hash",
+		Hash:       emptyHash,
 		BucketName: config.AppConfig.BucketName,
-		ObjectName: "files/stale/repair_hash",
+		ObjectName: "files/stale/" + emptyHash,
 		Size:       1,
 		RefCount:   1,
 	}
@@ -478,7 +479,7 @@ func TestCompleteFileRepairStaleObject(t *testing.T) {
 	_ = storage.Minio.Client.RemoveObject(context.Background(), config.AppConfig.BucketName, fileObj.ObjectName, minio.RemoveObjectOptions{})
 }
 
-// 测试FindObjectIdByName
+// FindObjectIdByName
 func TestFindObjectIdByName(t *testing.T) {
 	cleanFileObjectTables(t)
 
@@ -497,7 +498,7 @@ func TestFindObjectIdByName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 通过objectName查找ID
+	// objectNameID
 	id, err := service.FindObjectIdByName(fileObj.ObjectName)
 	if err != nil {
 		t.Fatalf("FindObjectIdByName failed: %v", err)
@@ -507,6 +508,3 @@ func TestFindObjectIdByName(t *testing.T) {
 		t.Fatalf("expect ID %d, got %d", fileObj.ID, id)
 	}
 }
-
-
-

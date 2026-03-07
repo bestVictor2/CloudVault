@@ -9,7 +9,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // CreateUserFileEntry creates a file or folder entry.
@@ -19,6 +22,145 @@ func CreateUserFileEntry(userFile *model.UserFile) error {
 	} else {
 		return CreateUserFile(userFile)
 	}
+}
+
+// createUserFileEntryTx creates a user file/dir entry within a transaction.
+// It does not emit activity or invalidate cache; call finalizeUserFileEntry after commit.
+func createUserFileEntryTx(tx *gorm.DB, userFile *model.UserFile) error {
+	if userFile.IsDir {
+		return createUserDirTx(tx, userFile)
+	}
+	return createUserFileTx(tx, userFile)
+}
+
+func createUserFileTx(tx *gorm.DB, userFile *model.UserFile) error {
+	if userFile.ObjectID == nil {
+		return fmt.Errorf("file must have objectId")
+	}
+	file := &model.UserFile{
+		UserID:   userFile.UserID,
+		ParentID: userFile.ParentID,
+		Name:     userFile.Name,
+		IsDir:    false,
+		ObjectID: userFile.ObjectID,
+		Size:     userFile.Size,
+	}
+	if err := tx.Create(file).Error; err != nil {
+		return err
+	}
+	userFile.ID = file.ID
+	return nil
+}
+
+func createUserDirTx(tx *gorm.DB, userFile *model.UserFile) error {
+	if userFile.ParentID != nil && *userFile.ParentID != 0 {
+		var parent model.UserFile
+		if err := tx.
+			Where("id = ? AND user_id = ? AND is_dir = 1 AND is_deleted = 0",
+				userFile.ParentID, userFile.UserID).
+			First(&parent).Error; err != nil {
+			return fmt.Errorf("parent not exist or not dir")
+		}
+	}
+	dir := &model.UserFile{
+		UserID:   userFile.UserID,
+		ParentID: userFile.ParentID,
+		Name:     userFile.Name,
+		IsDir:    true,
+		ObjectID: nil,
+		Size:     0,
+	}
+	if err := tx.Create(dir).Error; err != nil {
+		return err
+	}
+	userFile.ID = dir.ID
+	return nil
+}
+
+func finalizeUserFileEntry(userFile *model.UserFile) {
+	if userFile == nil {
+		return
+	}
+	invalidateFileListCache(userFile.UserID, userFile.ParentID)
+	if !userFile.IsDir {
+		_ = activity.Emit(context.Background(), userFile.UserID, activity.ActionUpload, userFile.ID, userFile.Size)
+	}
+	syncUserFileIndexesAsync([]uint64{userFile.ID})
+}
+
+func syncUserFileIndexesAsync(fileIDs []uint64) {
+	if !isESSearchEnabled() || len(fileIDs) == 0 {
+		return
+	}
+	ids := uniqueFileIDs(fileIDs)
+	go func() {
+		for _, id := range ids {
+			if err := SyncUserFileSearchIndexByID(context.Background(), id); err != nil {
+				log.Printf("es sync file_id=%d failed: %v", id, err)
+			}
+		}
+	}()
+}
+
+func deleteUserFileIndexesAsync(fileIDs []uint64) {
+	if !isESSearchEnabled() || len(fileIDs) == 0 {
+		return
+	}
+	ids := uniqueFileIDs(fileIDs)
+	go func() {
+		for _, id := range ids {
+			if err := DeleteUserFileSearchIndexByID(context.Background(), id); err != nil {
+				log.Printf("es delete file_id=%d failed: %v", id, err)
+			}
+		}
+	}()
+}
+
+func uniqueFileIDs(fileIDs []uint64) []uint64 {
+	seen := make(map[uint64]struct{}, len(fileIDs))
+	out := make([]uint64, 0, len(fileIDs))
+	for _, id := range fileIDs {
+		if id == 0 {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
+func collectSubtreeFileIDs(userID, rootID uint64, includeDeleted bool) ([]uint64, error) {
+	if rootID == 0 {
+		return nil, nil
+	}
+	queue := []uint64{rootID}
+	visited := make(map[uint64]struct{})
+	result := make([]uint64, 0, 32)
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if _, ok := visited[current]; ok {
+			continue
+		}
+		visited[current] = struct{}{}
+		result = append(result, current)
+
+		var children []uint64
+		query := repo.Db.Model(&model.UserFile{})
+		if includeDeleted {
+			query = query.Unscoped()
+		}
+		if err := query.
+			Where("user_id = ? AND parent_id = ?", userID, current).
+			Pluck("id", &children).Error; err != nil {
+			return nil, err
+		}
+		queue = append(queue, children...)
+	}
+	return result, nil
 }
 
 // cacheParentID normalizes parent ID for cache keys.
@@ -63,6 +205,7 @@ func CreateUserFile(userFile *model.UserFile) error {
 	userFile.ID = file.ID
 	invalidateFileListCache(userFile.UserID, userFile.ParentID)
 	_ = activity.Emit(context.Background(), userFile.UserID, activity.ActionUpload, file.ID, file.Size)
+	syncUserFileIndexesAsync([]uint64{file.ID})
 	return nil
 }
 
@@ -91,6 +234,7 @@ func CreateUserDir(userFile *model.UserFile) error {
 	// 更新传入对象的ID
 	userFile.ID = dir.ID
 	invalidateFileListCache(userFile.UserID, userFile.ParentID)
+	syncUserFileIndexesAsync([]uint64{dir.ID})
 	return nil
 }
 
@@ -120,6 +264,8 @@ func MoveToRecycle(userId, fileId uint64) error {
 		return err
 	}
 	invalidateFileListCache(userId, parentID)
+	subtreeIDs, _ := collectSubtreeFileIDs(userId, fileId, true)
+	deleteUserFileIndexesAsync(subtreeIDs)
 	return nil
 }
 
@@ -150,6 +296,8 @@ func RestoreFile(userID, fileID uint) error { // 恢复文件
 		return err
 	}
 	invalidateFileListCache(uint64(userID), parentID)
+	subtreeIDs, _ := collectSubtreeFileIDs(uint64(userID), uint64(fileID), true)
+	syncUserFileIndexesAsync(subtreeIDs)
 	return nil
 }
 
@@ -159,6 +307,7 @@ func DeleteFileRecord(userID, fileID uint) error {
 	if err != nil {
 		return errors.New("file not found")
 	}
+	subtreeIDs, _ := collectSubtreeFileIDs(uint64(userID), uint64(fileID), true)
 
 	var deletedBytes int64
 	if file.IsDir {
@@ -185,6 +334,7 @@ func DeleteFileRecord(userID, fileID uint) error {
 	}
 	invalidateFileListCache(uint64(userID), file.ParentID)
 	_ = activity.Emit(context.Background(), uint64(userID), activity.ActionDelete, uint64(fileID), deletedBytes)
+	deleteUserFileIndexesAsync(subtreeIDs)
 	return nil
 }
 
@@ -348,6 +498,8 @@ func RenameFile(userID, fileID uint64, newName string) error {
 		return err
 	}
 	invalidateFileListCache(userID, file.ParentID)
+	subtreeIDs, _ := collectSubtreeFileIDs(userID, fileID, false)
+	syncUserFileIndexesAsync(subtreeIDs)
 	return nil
 }
 
@@ -416,6 +568,12 @@ func MoveFiles(userID uint64, fileIDs []uint64, targetID *uint64) error {
 		root := uint64(0)
 		invalidateFileListCache(userID, &root)
 	}
+	var changed []uint64
+	for _, fileID := range fileIDs {
+		subtreeIDs, _ := collectSubtreeFileIDs(userID, fileID, false)
+		changed = append(changed, subtreeIDs...)
+	}
+	syncUserFileIndexesAsync(changed)
 	return nil
 }
 
@@ -491,6 +649,7 @@ func CopyFiles(userID uint64, fileIDs []uint64, targetID *uint64) error {
 		if err := repo.Db.Create(newFile).Error; err != nil {
 			return err
 		}
+		syncUserFileIndexesAsync([]uint64{newFile.ID})
 
 		// 若为文件夹，递归复制子文
 		if file.IsDir {
@@ -552,6 +711,12 @@ func BatchMoveToRecycle(userID uint64, fileIDs []uint64) error {
 		pid := id
 		invalidateFileListCache(userID, &pid)
 	}
+	var deleted []uint64
+	for _, fileID := range fileIDs {
+		subtreeIDs, _ := collectSubtreeFileIDs(userID, fileID, true)
+		deleted = append(deleted, subtreeIDs...)
+	}
+	deleteUserFileIndexesAsync(deleted)
 	return nil
 }
 
@@ -594,5 +759,6 @@ func CreateFolder(userID uint64, parentID *uint64, name string) error {
 		return err
 	}
 	invalidateFileListCache(userID, parentID)
+	syncUserFileIndexesAsync([]uint64{dir.ID})
 	return nil
 }

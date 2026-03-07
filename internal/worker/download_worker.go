@@ -27,7 +27,7 @@ type dlqMessage struct {
 }
 
 // RunDownloadWorker consumes download tasks from RabbitMQ.
-func RunDownloadWorker(ctx context.Context) error {
+func RunDownloadWorker(ctx context.Context) error { // 启动一个下载消费者
 	client, err := mq.Dial()
 	if err != nil {
 		return err
@@ -44,7 +44,7 @@ func RunDownloadWorker(ctx context.Context) error {
 	}
 	if err := client.Channel.Qos(prefetch, 0, false); err != nil {
 		return err
-	}
+	} // Qos 控制最多有多少条未 ack 消息
 
 	deliveries, err := client.Channel.Consume(
 		mq.QueueTasks,
@@ -59,17 +59,17 @@ func RunDownloadWorker(ctx context.Context) error {
 		return err
 	}
 
-	concurrency := config.AppConfig.DownloadWorkerConcurrency
+	concurrency := config.AppConfig.DownloadWorkerConcurrency // 同时最多有多少个 g 下载
 	if concurrency <= 0 {
 		concurrency = 1
 	}
-	sem := make(chan struct{}, concurrency)
+	sem := make(chan struct{}, concurrency) // 并发信号量
 
-	burst := config.AppConfig.DownloadBurst
+	burst := config.AppConfig.DownloadBurst // 瞬间最多数量
 	if burst <= 0 {
 		burst = 1
 	}
-	rateLimit := config.AppConfig.DownloadRate
+	rateLimit := config.AppConfig.DownloadRate // 每秒启动数
 	var limiter *rate.Limiter
 	if rateLimit <= 0 {
 		limiter = rate.NewLimiter(rate.Inf, burst)
@@ -98,13 +98,13 @@ func handleDownloadMessage(ctx context.Context, client *mq.Client, limiter *rate
 	var msg task.DownloadMessage
 	if err := json.Unmarshal(delivery.Body, &msg); err != nil {
 		log.Printf("download worker: invalid message: %v", err)
-		_ = delivery.Ack(false)
+		_ = delivery.Ack(false) // 直接 ack 否则会一直进行处理
 		return
 	}
 
 	if limiter != nil {
 		if err := limiter.Wait(ctx); err != nil {
-			_ = delivery.Nack(false, true)
+			_ = delivery.Nack(false, true) // 重新入队
 			return
 		}
 	}
@@ -138,9 +138,11 @@ func shouldRetry(err error) bool {
 	}
 	var httpErr *service.HTTPStatusError
 	if errors.As(err, &httpErr) {
+		// 408 网络问题 429 服务器请求繁忙
 		if httpErr.StatusCode == http.StatusRequestTimeout || httpErr.StatusCode == http.StatusTooManyRequests {
 			return true
 		}
+		// 5xx 服务器内部错误
 		return httpErr.StatusCode >= http.StatusInternalServerError
 	}
 	return true
@@ -218,4 +220,3 @@ func pickRetryDelay(attempt int, delays []time.Duration) time.Duration {
 	}
 	return delays[index]
 }
-

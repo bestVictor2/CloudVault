@@ -1,4 +1,4 @@
-﻿package model
+package model
 
 import "time"
 
@@ -27,6 +27,3 @@ type UploadSession struct {
 func (UploadSession) TableName() string {
 	return "upload_session"
 }
-
-
-

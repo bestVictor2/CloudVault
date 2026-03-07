@@ -57,7 +57,7 @@ func InitShardingManager(shardCount int, enabled bool) {
 func GetShardingManager() *ShardingManager {
 	if globalShardingManager == nil {
 		InitShardingManager(4, false) // 默认4个分片，默认不启
-}
+	}
 	return globalShardingManager
 }
 
@@ -65,7 +65,7 @@ func GetShardingManager() *ShardingManager {
 func (sm *ShardingManager) GetShardDB(userID uint64) *gorm.DB {
 	if !sm.config.Enabled {
 		return Db // 如果未启用分片，返回默认数据
-}
+	}
 
 	// 计算分片索引
 	shardIndex := userID % uint64(sm.config.ShardCount)
@@ -92,7 +92,7 @@ func (sm *ShardingManager) GetShardDB(userID uint64) *gorm.DB {
 	if err != nil {
 		log.Printf("Failed to create shard DB for user %d: %v", userID, err)
 		return Db // 返回默认数据
-}
+	}
 
 	sm.databases[shardIndex] = db
 	return db
@@ -175,7 +175,3 @@ func (sm *ShardingManager) CloseShardConnections() error {
 	sm.databases = make(map[uint64]*gorm.DB)
 	return lastErr
 }
-
-
-
-

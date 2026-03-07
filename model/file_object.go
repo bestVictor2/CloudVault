@@ -1,4 +1,4 @@
-﻿package model
+package model
 
 import "time"
 
@@ -24,6 +24,3 @@ type FileObject struct {
 func (FileObject) TableName() string {
 	return "file_object"
 }
-
-
-

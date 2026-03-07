@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"golang.org/x/net/context"
@@ -40,6 +41,123 @@ func BuildObjectName(username, hash string) string {
 	return fmt.Sprintf("files/%s/%s", username, hash)
 } // minio 存储路径
 
+// BuildTempObjectName builds a temporary object path for uploads.
+func BuildTempObjectName(username, token string) string {
+	return fmt.Sprintf("files/%s/tmp/%s", username, token)
+}
+
+// FinalizeUploadedObject deduplicates by hash and creates a user file entry.
+// Returns user file ID and whether an existing object was reused.
+func FinalizeUploadedObject(
+	ctx context.Context,
+	userID uint64,
+	parentID *uint64,
+	fileName string,
+	size int64,
+	bucketName string,
+	objectName string,
+	hash string,
+) (uint64, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	existingObj, err := GetFileObjectByHash(hash)
+	if err == nil {
+		available, checkErr := isFileObjectAvailable(ctx, existingObj)
+		if checkErr != nil {
+			return 0, false, checkErr
+		}
+		var (
+			oldBucket   string
+			oldObject   string
+			updatedPath bool
+			userFile    *model.UserFile
+		)
+		if !available {
+			oldBucket = existingObj.BucketName
+			oldObject = existingObj.ObjectName
+			updatedPath = true
+		} else if existingObj.BucketName != bucketName || existingObj.ObjectName != objectName {
+			if storage.Default != nil {
+				_ = storage.Default.RemoveObject(ctx, bucketName, objectName)
+			}
+		}
+
+		if err := repo.Db.Transaction(func(tx *gorm.DB) error {
+			if updatedPath {
+				if err := tx.Model(&model.FileObject{}).
+					Where("id = ?", existingObj.ID).
+					Updates(map[string]interface{}{
+						"bucket_name": bucketName,
+						"object_name": objectName,
+						"size":        size,
+					}).Error; err != nil {
+					return err
+				}
+				existingObj.BucketName = bucketName
+				existingObj.ObjectName = objectName
+				existingObj.Size = size
+			}
+			if err := increaseRefCountTx(tx, existingObj.ID); err != nil {
+				return err
+			}
+			userFile = &model.UserFile{
+				UserID:   userID,
+				ParentID: parentID,
+				Name:     fileName,
+				ObjectID: &existingObj.ID,
+				Size:     size,
+				IsDir:    false,
+			}
+			return createUserFileEntryTx(tx, userFile)
+		}); err != nil {
+			return 0, false, err
+		}
+		if updatedPath && (oldBucket != existingObj.BucketName || oldObject != existingObj.ObjectName) {
+			_ = utils.InvalidateFileObjectPathCache(ctx, oldBucket, oldObject)
+		}
+		_ = utils.InvalidateFileObjectCache(ctx, existingObj.ID)
+		cacheFileObject(ctx, existingObj)
+		finalizeUserFileEntry(userFile)
+		return userFile.ID, true, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return 0, false, err
+	}
+
+	obj := &model.FileObject{
+		UserID:     userID,
+		BucketName: bucketName,
+		Hash:       hash,
+		ObjectName: objectName,
+		Size:       size,
+		RefCount:   1,
+	}
+	userFile := &model.UserFile{
+		UserID:   userID,
+		ParentID: parentID,
+		Name:     fileName,
+		Size:     size,
+		IsDir:    false,
+	}
+	if err := repo.Db.Transaction(func(tx *gorm.DB) error {
+		if err := createFilesObjectTx(tx, obj); err != nil {
+			return err
+		}
+		userFile.ObjectID = &obj.ID
+		return createUserFileEntryTx(tx, userFile)
+	}); err != nil {
+		if storage.Default != nil {
+			_ = storage.Default.RemoveObject(ctx, bucketName, objectName)
+		}
+		return 0, false, err
+	}
+	cacheFileObject(ctx, obj)
+	finalizeUserFileEntry(userFile)
+	return userFile.ID, false, nil
+}
+
 // DeleteMinioFile removes an object from MinIO.
 // MinIO 删除对象
 func DeleteMinioFile(fileObject *model.FileObject) error {
@@ -61,6 +179,16 @@ func CreateFilesObject(dir *model.FileObject) error {
 	}
 	cacheFileObject(context.Background(), dir)
 	return nil
+}
+
+func createFilesObjectTx(tx *gorm.DB, obj *model.FileObject) error {
+	return tx.Model(&model.FileObject{}).Create(obj).Error
+}
+
+func increaseRefCountTx(tx *gorm.DB, id uint64) error {
+	return tx.Model(&model.FileObject{}).
+		Where("id = ?", id).
+		UpdateColumn("ref_count", gorm.Expr("ref_count + 1")).Error
 }
 
 // GetFileByObject finds a file object by bucket and name.
@@ -209,9 +337,6 @@ func FastUpload(
 		}, nil
 	}
 
-	if err := IncreaseRefCount(obj.ID); err != nil {
-		return nil, err
-	}
 	var parentID *uint64
 	if req.ParentId != 0 {
 		parentID = &req.ParentId
@@ -224,10 +349,17 @@ func FastUpload(
 		Size:     obj.Size,
 		IsDir:    false,
 	}
-	if err := CreateUserFileEntry(userFile); err != nil { // 创建文件失败 回滚引用计数
-		_, _ = DecreaseRefCount(obj.ID)
+	if err := repo.Db.Transaction(func(tx *gorm.DB) error {
+		if err := increaseRefCountTx(tx, obj.ID); err != nil {
+			return err
+		}
+		return createUserFileEntryTx(tx, userFile)
+	}); err != nil {
 		return nil, err
 	}
+	_ = utils.InvalidateFileObjectCache(context.Background(), obj.ID)
+	cacheFileObject(ctx, obj)
+	finalizeUserFileEntry(userFile)
 	return &dto.FastUploadResponse{
 		Instant: true,
 		FileId:  userFile.ID,
@@ -255,6 +387,15 @@ func GetUploadSessionByUploadID(uploadID string) (*model.UploadSession, error) {
 	return &session, nil
 }
 
+// GetUploadSessionByUploadID loads an upload session by upload ID.
+//func GetUploadSessionByUploadID(uploadID string) (*model.UploadSession, error) {
+//	var session model.UploadSession
+//	if err := repo.Db.Where("upload_id = ?", uploadID).First(&session).Error; err != nil {
+//		return nil, err
+//	}
+//	return &session, nil
+//}
+
 // CheckChunkNum loads uploaded chunks for a hash.
 func CheckChunkNum(userID uint64, hash string, chunks *[]model.FileChunk) error {
 	session, err := GetUploadSessionByHash(userID, hash)
@@ -271,6 +412,22 @@ func CheckChunkNum(userID uint64, hash string, chunks *[]model.FileChunk) error 
 
 // MultiPartFileInit initializes multipart upload.
 func MultiPartFileInit(ctx context.Context, req dto.MultipartInitRequest) (*dto.MultiPartFileResponse, error) {
+	req.Hash = strings.TrimSpace(req.Hash)
+	if req.Hash == "" {
+		req.Hash = "session_" + utils.GetToken()
+		if err := CreateUploadSession(req); err != nil {
+			return nil, err
+		}
+		var session model.UploadSession
+		if err := repo.Db.Where("file_hash = ? AND user_id = ?", req.Hash, req.UserId).Order("id desc").First(&session).Error; err != nil {
+			return nil, err
+		}
+		return &dto.MultiPartFileResponse{
+			Instant:  false,
+			UploadID: session.UploadID,
+			Uploaded: []int{},
+		}, nil
+	}
 	if obj, err := GetFileObjectByHash(req.Hash); err == nil { // db
 		available, checkErr := isFileObjectAvailable(ctx, obj) // minio
 		if checkErr != nil {
@@ -278,9 +435,6 @@ func MultiPartFileInit(ctx context.Context, req dto.MultipartInitRequest) (*dto.
 		}
 		if !available {
 			goto uploadFlow
-		}
-		if err := IncreaseRefCount(obj.ID); err != nil {
-			return nil, err
 		}
 		var parentID *uint64
 		if req.ParentId != 0 {
@@ -294,10 +448,17 @@ func MultiPartFileInit(ctx context.Context, req dto.MultipartInitRequest) (*dto.
 			Size:     obj.Size,
 			IsDir:    false,
 		}
-		if err := CreateUserFileEntry(userFile); err != nil {
-			_, _ = DecreaseRefCount(obj.ID)
+		if err := repo.Db.Transaction(func(tx *gorm.DB) error {
+			if err := increaseRefCountTx(tx, obj.ID); err != nil {
+				return err
+			}
+			return createUserFileEntryTx(tx, userFile)
+		}); err != nil {
 			return nil, err
 		}
+		_ = utils.InvalidateFileObjectCache(context.Background(), obj.ID)
+		cacheFileObject(ctx, obj)
+		finalizeUserFileEntry(userFile)
 		return &dto.MultiPartFileResponse{
 			Instant: true,
 		}, nil
@@ -408,39 +569,82 @@ func FindAllChunkFile(userID uint64, chunks *[]model.FileChunk, req dto.Multipar
 		Find(chunks).Error
 }
 
+// FindAllChunkFileByUploadID loads all chunks for completion by upload ID.
+func FindAllChunkFileByUploadID(uploadID string, chunks *[]model.FileChunk) error {
+	return repo.Db.
+		Where("upload_id = ? AND status = 1", uploadID).
+		Order("chunk_index asc").
+		Find(chunks).Error
+}
+
 // CompleteFile composes chunks and creates file records.
 func CompleteFile(
 	ctx context.Context,
 	req dto.MultipartCompleteRequest,
 	userName string,
 ) error {
+	_, err := CompleteFileWithHash(ctx, req, userName)
+	return err
+}
+
+// CompleteFileWithHash composes chunks, verifies hash (if provided), and creates records.
+func CompleteFileWithHash(
+	ctx context.Context,
+	req dto.MultipartCompleteRequest,
+	userName string,
+) (string, error) {
 	userId, err := FindIdByUsername(userName)
 	if err != nil {
-		return err
-	}
-	chunks := make([]model.FileChunk, 0)
-	if err := FindAllChunkFile(userId, &chunks, req); err != nil {
-		return err
-	}
-	if len(chunks) != req.TotalChunks {
-		return errors.New("chunks not complete")
+		return "", err
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	if storage.Default == nil {
-		return fmt.Errorf("storage not initialized")
+	var session *model.UploadSession
+	if strings.TrimSpace(req.UploadID) != "" {
+		session, err = GetUploadSessionByUploadID(req.UploadID)
+	} else if strings.TrimSpace(req.FileHash) != "" {
+		session, err = GetUploadSessionByHash(userId, req.FileHash)
+	} else {
+		return "", errors.New("upload_id or file_hash required")
 	}
-	cleanupUploadData := func() { // 删除所有 chunk session 等
+	if err != nil {
+		return "", err
+	}
+	if session.UserID != userId {
+		return "", errors.New("upload session forbidden")
+	}
+
+	if req.TotalChunks <= 0 {
+		req.TotalChunks = session.TotalChunks
+	} else if req.TotalChunks != session.TotalChunks {
+		return "", errors.New("total_chunks mismatch")
+	}
+	if req.FileSize <= 0 && session.FileSize > 0 {
+		req.FileSize = session.FileSize
+	}
+	if req.FileName == "" {
+		req.FileName = session.FileName
+	}
+
+	chunks := make([]model.FileChunk, 0)
+	if err := FindAllChunkFileByUploadID(session.UploadID, &chunks); err != nil {
+		return "", err
+	}
+	if len(chunks) != req.TotalChunks {
+		return "", errors.New("chunks not complete")
+	}
+	if storage.Default == nil {
+		return "", fmt.Errorf("storage not initialized")
+	}
+
+	cleanupUploadData := func() {
 		for _, c := range chunks {
 			_ = storage.Default.RemoveObject(ctx, config.AppConfig.BucketName, c.ChunkPath)
 		}
-		var session model.UploadSession
-		if err := repo.Db.Where("file_hash = ? AND user_id = ?", req.FileHash, userId).Order("id desc").First(&session).Error; err == nil {
-			repo.Db.Where("upload_id = ?", session.UploadID).Delete(&model.FileChunk{})
-			repo.Db.Delete(&session)
-		}
+		_ = repo.Db.Where("upload_id = ?", session.UploadID).Delete(&model.FileChunk{}).Error
+		_ = repo.Db.Delete(&model.UploadSession{}, session.ID).Error
 	}
 	writeObject := func(objectName string) error {
 		if req.TotalChunks == 0 {
@@ -467,100 +671,57 @@ func CompleteFile(
 			Bucket: config.AppConfig.BucketName,
 			Object: objectName,
 		}
-		return storage.Default.ComposeObject(ctx, dst, srcs...) // 调用 minio 客户端api
+		return storage.Default.ComposeObject(ctx, dst, srcs...)
 	}
 
-	var (
-		objectID         uint64
-		dstObject        string
-		createdNewObject bool
-		increasedRef     bool
-	)
-	existingObj, err := GetFileObjectByHash(req.FileHash)
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return err
+	dstObject := BuildTempObjectName(userName, session.UploadID)
+	if strings.TrimSpace(req.FileHash) != "" {
+		if existingObj, err := GetFileObjectByHash(req.FileHash); err == nil {
+			available, checkErr := isFileObjectAvailable(ctx, existingObj)
+			if checkErr == nil && !available && existingObj.ObjectName != "" {
+				dstObject = existingObj.ObjectName
+			}
+		}
 	}
-	if err == nil {
-		available, checkErr := isFileObjectAvailable(ctx, existingObj)
-		if checkErr != nil {
-			return checkErr
-		}
-		if !available { // hash 存在 但对象不可用 更新并刷新缓存
-			oldBucket := existingObj.BucketName
-			oldObject := existingObj.ObjectName
-			dstObject = existingObj.ObjectName
-			if err := writeObject(dstObject); err != nil {
-				return err
-			}
-			if err := repo.Db.Model(&model.FileObject{}).
-				Where("id = ?", existingObj.ID).
-				Updates(map[string]interface{}{
-					"bucket_name": config.AppConfig.BucketName,
-					"object_name": dstObject,
-					"size":        req.FileSize,
-				}).Error; err != nil {
-				return err
-			}
-			existingObj.BucketName = config.AppConfig.BucketName
-			existingObj.ObjectName = dstObject
-			existingObj.Size = req.FileSize
-			if oldBucket != existingObj.BucketName || oldObject != existingObj.ObjectName {
-				_ = utils.InvalidateFileObjectPathCache(ctx, oldBucket, oldObject)
-			}
-			cacheFileObject(ctx, existingObj)
-		}
-		// hash 存在＋对象可用
-		if err := IncreaseRefCount(existingObj.ID); err != nil {
-			return err
-		}
-		increasedRef = true
-		objectID = existingObj.ID
-	} else {
-		dstObject = BuildObjectName(userName, req.FileHash)
-		if err := writeObject(dstObject); err != nil {
-			return err
-		}
-		obj := &model.FileObject{
-			UserID:     userId,
-			BucketName: config.AppConfig.BucketName,
-			Hash:       req.FileHash,
-			ObjectName: dstObject,
-			Size:       req.FileSize,
-			RefCount:   1,
-		}
-		if err := CreateFilesObject(obj); err != nil { // 回滚
-			_ = storage.Default.RemoveObject(ctx, config.AppConfig.BucketName, dstObject)
-			return err
-		}
-		objectID = obj.ID
-		createdNewObject = true
+	if err := writeObject(dstObject); err != nil {
+		return "", err
+	}
+	hash, size, err := ComputeObjectHash(ctx, config.AppConfig.BucketName, dstObject)
+	if err != nil {
+		return "", err
+	}
+	if req.FileSize > 0 && size != req.FileSize {
+		_ = storage.Default.RemoveObject(ctx, config.AppConfig.BucketName, dstObject)
+		cleanupUploadData()
+		return "", errors.New("file_size mismatch")
+	}
+	if strings.TrimSpace(req.FileHash) != "" && req.FileHash != hash {
+		_ = storage.Default.RemoveObject(ctx, config.AppConfig.BucketName, dstObject)
+		cleanupUploadData()
+		return "", errors.New("file_hash mismatch")
 	}
 
 	var parentID *uint64
 	if req.ParentId != 0 {
 		parentID = &req.ParentId
 	}
-	userFile := &model.UserFile{
-		UserID:   userId,
-		Name:     req.FileName,
-		ParentID: parentID,
-		IsDir:    false,
-		ObjectID: &objectID,
-		Size:     req.FileSize,
-	}
-	if err := CreateUserFileEntry(userFile); err != nil { // 回滚
-		if createdNewObject {
-			_ = storage.Default.RemoveObject(ctx, config.AppConfig.BucketName, dstObject)
-			_ = repo.Db.Delete(&model.FileObject{}, objectID).Error
-		}
-		if increasedRef {
-			_, _ = DecreaseRefCount(objectID)
-		}
-		return err
+	if _, _, err := FinalizeUploadedObject(
+		ctx,
+		userId,
+		parentID,
+		req.FileName,
+		size,
+		config.AppConfig.BucketName,
+		dstObject,
+		hash,
+	); err != nil {
+		_ = storage.Default.RemoveObject(ctx, config.AppConfig.BucketName, dstObject)
+		cleanupUploadData()
+		return "", err
 	}
 
 	cleanupUploadData()
-	return nil
+	return hash, nil
 }
 
 // FindObjectIdByName finds object ID by name.

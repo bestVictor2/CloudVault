@@ -1,4 +1,4 @@
-﻿package utils
+package utils
 
 import "github.com/google/uuid"
 
@@ -6,4 +6,3 @@ import "github.com/google/uuid"
 func GetToken() string {
 	return uuid.NewString()
 }
-

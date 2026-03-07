@@ -1,4 +1,4 @@
-﻿package model
+package model
 
 import (
 	"time"
@@ -30,5 +30,3 @@ type FileShare struct {
 func (FileShare) TableName() string {
 	return "file_share"
 }
-
-

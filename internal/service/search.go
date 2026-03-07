@@ -5,10 +5,28 @@ import (
 	"CloudVault/internal/repo"
 	"CloudVault/model"
 	"fmt"
+	"log"
 )
 
-// SearchFiles searches files by name.
+// SearchFiles searches files by keyword.
+// Priority:
+// 1) Elasticsearch (when enabled)
+// 2) MySQL LIKE fallback
 func SearchFiles(userID uint64, req *dto.FileSearchRequest) ([]model.UserFile, int64, error) {
+	if isESSearchEnabled() {
+		if err := EnsureUserFilesSearchIndexed(nil, userID); err != nil {
+			log.Printf("es backfill skipped: %v", err)
+		}
+		files, total, err := searchFilesByES(userID, req)
+		if err == nil {
+			return files, total, nil
+		}
+		log.Printf("es search fallback to mysql: %v", err)
+	}
+	return searchFilesByDB(userID, req)
+}
+
+func searchFilesByDB(userID uint64, req *dto.FileSearchRequest) ([]model.UserFile, int64, error) {
 	var files []model.UserFile
 	var total int64
 
@@ -41,7 +59,5 @@ func SearchFiles(userID uint64, req *dto.FileSearchRequest) ([]model.UserFile, i
 	if err := query.Order(order).Offset(offset).Limit(req.PageSize).Find(&files).Error; err != nil {
 		return nil, 0, err
 	}
-
 	return files, total, nil
 }
-

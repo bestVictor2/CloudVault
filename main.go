@@ -3,6 +3,7 @@ package main
 import (
 	"CloudVault/config"
 	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
 	"CloudVault/internal/storage"
 	"CloudVault/router"
 	"context"
@@ -17,6 +18,12 @@ func main() {
 	storage.InitMinio()
 
 	ctx := context.Background()
+	service.StartUploadSessionWatchdog(
+		ctx,
+		config.AppConfig.UploadWatchdogInterval,
+		config.AppConfig.UploadSessionTTL,
+		config.AppConfig.UploadWatchdogBatch,
+	)
 	if err := repo.EnableKeyspaceNotifications(ctx); err != nil {
 		log.Printf("enable redis keyspace notifications failed: %v", err)
 	} else {
@@ -29,6 +36,3 @@ func main() {
 
 	router.Run(":8000")
 }
-
-
-

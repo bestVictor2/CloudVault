@@ -339,6 +339,3 @@ func StartMigrationMonitor(ctx context.Context, interval time.Duration) {
 
 	log.Printf("Migration monitor started with interval %v", interval)
 }
-
-
-

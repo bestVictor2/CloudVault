@@ -67,6 +67,10 @@ func InitRouter() *gin.Engine {
 			user.GET("/common-dirs", handler.ListUserCommonDirs)
 			user.GET("/activity/summary", handler.GetUserActivitySummary)
 		}
+		ai := auth.Group("/ai")
+		{
+			ai.POST("/ask", handler.AskAI)
+		}
 		api.GET("/share/download/:shareID", handler.ShareDownload)
 	}
 	return r

@@ -1,12 +1,15 @@
 package handler
 
 import (
+	"CloudVault/config"
 	"CloudVault/internal/dto"
 	"CloudVault/internal/service"
 	"CloudVault/internal/storage"
 	"CloudVault/internal/task"
 	"CloudVault/utils"
 	"archive/zip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,6 +24,82 @@ import (
 
 // UploadFileByHash handles hash-based instant upload.
 func UploadFileByHash(c *gin.Context) {
+	if strings.HasPrefix(c.ContentType(), "multipart/") {
+		file, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "missing file"})
+			return
+		}
+		fileName := strings.TrimSpace(c.PostForm("file_name"))
+		if fileName == "" {
+			fileName = file.Filename
+		}
+		var parentID *uint64
+		if rawParent := strings.TrimSpace(c.PostForm("parent_id")); rawParent != "" {
+			parsed, err := strconv.ParseUint(rawParent, 10, 64)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parent_id"})
+				return
+			}
+			if parsed != 0 {
+				parentID = &parsed
+			}
+		}
+		userID := c.MustGet("user_id").(uint64)
+		userName := c.MustGet("username").(string)
+		if storage.Default == nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "storage not initialized"})
+			return
+		}
+
+		src, err := file.Open()
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "file open failed"})
+			return
+		}
+		defer src.Close()
+
+		objectName := service.BuildTempObjectName(userName, utils.GetToken())
+		hasher := sha256.New()
+		tee := io.TeeReader(src, hasher)
+		if err := storage.Default.PutObject(
+			c.Request.Context(),
+			config.AppConfig.BucketName,
+			objectName,
+			tee,
+			file.Size,
+			storage.PutOptions{
+				ContentType: service.GetContentBook(fileName),
+			},
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		hash := hex.EncodeToString(hasher.Sum(nil))
+		fileID, reused, err := service.FinalizeUploadedObject(
+			c.Request.Context(),
+			userID,
+			parentID,
+			fileName,
+			file.Size,
+			config.AppConfig.BucketName,
+			objectName,
+			hash,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		utils.Success(c, &dto.FastUploadResponse{
+			Instant: true,
+			FileId:  fileID,
+			Hash:    hash,
+			Reused:  reused,
+		})
+		return
+	}
+
 	var req dto.UploadFileByHashRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})

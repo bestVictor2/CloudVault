@@ -33,9 +33,6 @@ func MinioUploadFile(
 	var existingObj model.FileObject
 	err := repo.Db.Where("bucket_name = ? AND object_name = ?", bucketName, objectName).
 		First(&existingObj).Error
-	var objectID uint64
-	createdNew := false
-
 	if err == nil {
 		available, checkErr := isFileObjectAvailable(ctx, &existingObj)
 		if checkErr != nil {
@@ -57,71 +54,90 @@ func MinioUploadFile(
 			); err != nil {
 				return err
 			}
-			if err := repo.Db.Model(&model.FileObject{}).
-				Where("id = ?", existingObj.ID).
-				Updates(map[string]interface{}{
-					"bucket_name": bucketName,
-					"object_name": objectName,
-					"size":        size,
-				}).Error; err != nil {
+		}
+		var userFile *model.UserFile
+		if err := repo.Db.Transaction(func(tx *gorm.DB) error {
+			if !available {
+				if err := tx.Model(&model.FileObject{}).
+					Where("id = ?", existingObj.ID).
+					Updates(map[string]interface{}{
+						"bucket_name": bucketName,
+						"object_name": objectName,
+						"size":        size,
+					}).Error; err != nil {
+					return err
+				}
+				existingObj.BucketName = bucketName
+				existingObj.ObjectName = objectName
+				existingObj.Size = size
+			}
+			if err := increaseRefCountTx(tx, existingObj.ID); err != nil {
 				return err
 			}
-		}
-		if err := IncreaseRefCount(existingObj.ID); err != nil {
+			userFile = &model.UserFile{
+				UserID:   userId,
+				ObjectID: &existingObj.ID,
+				Name:     path.Base(filePath),
+				IsDir:    false,
+				Size:     size,
+			}
+			return createUserFileEntryTx(tx, userFile)
+		}); err != nil {
 			return err
 		}
-		objectID = existingObj.ID
-	} else if err != gorm.ErrRecordNotFound {
+		_ = utils.InvalidateFileObjectCache(context.Background(), existingObj.ID)
+		cacheFileObject(ctx, &existingObj)
+		finalizeUserFileEntry(userFile)
+		return nil
+	}
+	if err != gorm.ErrRecordNotFound {
 		return err
-	} else {
-		if storage.Default == nil {
-			return fmt.Errorf("storage not initialized")
-		}
-		if err := storage.Default.PutObject(
-			ctx,
-			bucketName,
-			objectName,
-			reader,
-			size,
-			storage.PutOptions{
-				ContentType: GetContentBook(filePath),
-			},
-		); err != nil {
-			return err
-		}
-		fileObject := &model.FileObject{
-			UserID:     userId,
-			BucketName: bucketName,
-			ObjectName: objectName,
-			Size:       size,
-			Hash:       hash,
-			RefCount:   1,
-		}
-		if err := CreateFilesObject(fileObject); err != nil {
-			return err
-		}
-		objectID = fileObject.ID
-		createdNew = true
 	}
 
-	file := &model.UserFile{
-		UserID:   userId,
-		ObjectID: &objectID,
-		Name:     path.Base(filePath),
-		IsDir:    false,
-		Size:     size,
+	if storage.Default == nil {
+		return fmt.Errorf("storage not initialized")
 	}
-	if err := CreateUserFileEntry(file); err != nil {
-		if createdNew {
-			if storage.Default != nil {
-				_ = storage.Default.RemoveObject(ctx, bucketName, objectName)
-			}
-			_ = repo.Db.Delete(&model.FileObject{}, objectID).Error
-		} else {
-			_, _ = DecreaseRefCount(objectID)
+	if err := storage.Default.PutObject(
+		ctx,
+		bucketName,
+		objectName,
+		reader,
+		size,
+		storage.PutOptions{
+			ContentType: GetContentBook(filePath),
+		},
+	); err != nil {
+		return err
+	}
+
+	fileObject := &model.FileObject{
+		UserID:     userId,
+		BucketName: bucketName,
+		ObjectName: objectName,
+		Size:       size,
+		Hash:       hash,
+		RefCount:   1,
+	}
+	userFile := &model.UserFile{
+		UserID: userId,
+		Name:   path.Base(filePath),
+		IsDir:  false,
+		Size:   size,
+	}
+	if err := repo.Db.Transaction(func(tx *gorm.DB) error {
+		if err := createFilesObjectTx(tx, fileObject); err != nil {
+			return err
+		}
+		userFile.ObjectID = &fileObject.ID
+		return createUserFileEntryTx(tx, userFile)
+	}); err != nil {
+		if storage.Default != nil {
+			_ = storage.Default.RemoveObject(ctx, bucketName, objectName)
 		}
 		return err
 	}
+	cacheFileObject(ctx, fileObject)
+	finalizeUserFileEntry(userFile)
 	return nil
 }
 
@@ -430,23 +446,24 @@ func UploadFromURL(
 		Size:       size,
 		RefCount:   1,
 	}
-	if err := CreateFilesObject(fileObj); err != nil {
-		removeObject()
-		return nil, err
-	}
-
 	userFile := &model.UserFile{
 		UserID:   userID,
 		ParentID: parentID,
 		Name:     fileName,
 		IsDir:    false,
-		ObjectID: &fileObj.ID,
 		Size:     size,
 	}
-	if err := CreateUserFileEntry(userFile); err != nil {
+	if err := repo.Db.Transaction(func(tx *gorm.DB) error {
+		if err := createFilesObjectTx(tx, fileObj); err != nil {
+			return err
+		}
+		userFile.ObjectID = &fileObj.ID
+		return createUserFileEntryTx(tx, userFile)
+	}); err != nil {
 		removeObject()
-		_ = repo.Db.Delete(&model.FileObject{}, fileObj.ID).Error
 		return nil, err
 	}
+	cacheFileObject(ctx, fileObj)
+	finalizeUserFileEntry(userFile)
 	return userFile, nil
 }

@@ -232,7 +232,7 @@ func (c *Client) PublishActivity(ctx context.Context, body []byte) error {
 
 func (c *Client) publish(ctx context.Context, exchange, key string, body []byte, expiration string) error {
 	c.publishMu.Lock()
-	defer c.publishMu.Unlock()
+	defer c.publishMu.Unlock() // channel 不是并发安全的
 	msg := amqp.Publishing{
 		ContentType:  "application/json",
 		Body:         body,

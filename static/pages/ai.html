@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>CloudVault 预览</title>
+    <title>CloudVault AI 助手</title>
     <link rel="stylesheet" href="../styles.css" />
   </head>
-  <body data-page="preview">
+  <body data-page="ai">
     <div class="backdrop">
       <span class="orb orb-a"></span>
       <span class="orb orb-b"></span>
@@ -28,8 +28,8 @@
         <a href="./profile.html">个人中心</a>
         <a href="./library.html">内容扩展</a>
         <a href="./share-analytics.html">分享统计</a>
-        <a class="active" href="./preview.html">预览</a>
-        <a href="./ai.html">AI 助手</a>
+        <a href="./preview.html">预览</a>
+        <a class="active" href="./ai.html">AI 助手</a>
       </nav>
       <div class="auth-bar">
         <input id="apiBase" type="text" value="" />
@@ -42,33 +42,31 @@
     </header>
 
     <main class="layout">
-      <section class="page-hero">
-        <div class="hero-card">
-          <h2>预览链接</h2>
-          <p>直接使用文件页已选文件生成预览链接。</p>
+      <section class="panel">
+        <div class="panel-header">
+          <h2>AI 智能问答</h2>
+          <p>调用后端 AI Agent，可结合你的文件数据执行检索、预览链接与分享辅助。</p>
         </div>
-        <div class="hero-card">
+        <div class="panel-body">
           <h2>提示</h2>
-          <p>预览链接通常有时效，过期后需要重新生成。</p>
-          <p>已启用转码时，部分视频格式首次预览会等待转码完成。</p>
-        </div>
-      </section>
+          <p>需要在后端配置 `AI_API_BASE`、`AI_API_KEY`、`AI_MODEL`。</p>
+          <p>Agent 已接入文件工具：目录列表、文件搜索、回收站查询、预览/下载链接生成、分享链接创建。</p>
+          <p>推荐免费方案：OpenRouter（可用 `openrouter/free` 路由免费模型）。</p>
+          <p>示例：`AI_API_BASE=https://openrouter.ai/api/v1`，`AI_MODEL=openrouter/free`。</p>
 
-      <section class="grid">
-        <div class="panel">
-          <h3>预览</h3>
-          <div class="field">
-            <label>当前选择</label>
-            <div id="previewSelected" class="selection-pill">未选择</div>
+          <div class="chat">
+            <div class="chat-header">
+              <h3>对话记录</h3>
+              <button id="aiClearBtn" class="ghost">清空对话</button>
+            </div>
+            <div id="aiChatLog" class="chat-log"></div>
+            <div class="chat-input">
+              <label for="aiPrompt">问题</label>
+              <textarea id="aiPrompt" placeholder="例如：如何设置上传目录？"></textarea>
+              <button id="aiSendBtn" class="primary">发送</button>
+            </div>
           </div>
-          <div class="actions">
-            <button id="previewRefreshBtn" class="ghost">刷新选择</button>
-            <a class="ghost" href="./files.html">打开文件管理</a>
-          </div>
-          <div class="actions">
-            <button id="previewDirectBtn" class="primary">获取预览链接</button>
-          </div>
-          <div id="previewStatus" class="status">待操作</div>
+          <div id="aiStatus" class="status">待操作</div>
         </div>
       </section>
     </main>
@@ -76,5 +74,3 @@
     <script src="../app.js"></script>
   </body>
 </html>
-
-

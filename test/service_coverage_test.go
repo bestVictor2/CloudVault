@@ -457,5 +457,3 @@ func TestUserFileOperations(t *testing.T) {
 		t.Fatalf("DeleteFileRecord failed: %v", err)
 	}
 }
-
-

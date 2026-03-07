@@ -95,7 +95,7 @@ func ProcessDownloadTask(ctx context.Context, taskID uint64) error {
 		return nil
 	}
 
-	size, err := service.DownloadByHTTP(
+	size, err := service.DownloadByHTTP( // 通过 url 进行下载
 		ctx,
 		task.Source,
 		task.ObjectName,
@@ -125,7 +125,7 @@ func ProcessDownloadTask(ctx context.Context, taskID uint64) error {
 		Size:       size,
 		RefCount:   1,
 	}
-	if err := service.CreateFilesObject(fileObj); err != nil {
+	if err := service.CreateFilesObject(fileObj); err != nil { // 如果文件已经存在
 		existingObj, getErr := service.GetFileObjectByHash(task.ObjectName)
 		if getErr != nil {
 			cleanupObject()

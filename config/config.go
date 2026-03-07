@@ -2,11 +2,15 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -43,9 +47,67 @@ type Config struct {
 	DownloadAllowPrivate      bool
 	DownloadAllowedHosts      []string
 	DownloadMaxBytes          int64
+	UploadSessionTTL          time.Duration
+	UploadWatchdogInterval    time.Duration
+	UploadWatchdogBatch       int
+	AIAPIBase                 string
+	AIAPIKey                  string
+	AIModel                   string
+	AIChatCompletionsPath     string
+	AIHTTPReferer             string
+	AIXTitle                  string
+	AIRequestTimeout          time.Duration
+	AIMaxTokens               int
+	AIHistoryLimit            int
+	AISystemPrompt            string
+	ESEnabled                 bool
+	ESAddress                 string
+	ESIndex                   string
+	ESAPIKey                  string
+	ESUsername                string
+	ESPassword                string
+	ESTimeout                 time.Duration
+	ESContentMaxBytes         int64
+	PreviewTranscodeEnabled   bool
+	PreviewTranscodeFFmpeg    string
+	PreviewTranscodeTimeout   time.Duration
+	PreviewTranscodeMaxBytes  int64
 }
 
 var AppConfig Config
+var loadEnvOnce sync.Once
+
+func loadEnvFile() {
+	loadEnvOnce.Do(func() {
+		// Merge .env and .env.local (local overrides base), then inject only when
+		// process env is empty. This keeps priority:
+		// non-empty process env > .env.local > .env > defaults.
+		merged := make(map[string]string)
+		mergeDotEnv(merged, ".env")
+		mergeDotEnv(merged, ".env.local")
+		for key, value := range merged {
+			if strings.TrimSpace(os.Getenv(key)) != "" {
+				continue
+			}
+			if err := os.Setenv(key, value); err != nil {
+				log.Printf("set env %s failed: %v", key, err)
+			}
+		}
+	})
+}
+
+func mergeDotEnv(dst map[string]string, filename string) {
+	values, err := godotenv.Read(filename)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("read %s failed: %v", filename, err)
+		}
+		return
+	}
+	for key, value := range values {
+		dst[key] = value
+	}
+}
 
 // getEnv returns the environment value or a default.
 func getEnv(key, defaultValue string) string {
@@ -164,6 +226,8 @@ func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
 
 // InitConfig loads configuration and initializes sub-configs.
 func InitConfig() {
+	loadEnvFile()
+
 	bucketNameTest := getEnv("BUCKET_NAME_TEST", "")
 	if bucketNameTest == "" {
 		bucketNameTest = getEnv("BUCKET_NAMETEST", "CloudVault-test")
@@ -222,6 +286,31 @@ func InitConfig() {
 		DownloadAllowPrivate:      getEnvBool("DOWNLOAD_ALLOW_PRIVATE", false),
 		DownloadAllowedHosts:      getEnvList("DOWNLOAD_ALLOW_HOSTS", nil),
 		DownloadMaxBytes:          getEnvInt64("DOWNLOAD_MAX_BYTES", 0),
+		UploadSessionTTL:          getEnvDuration("UPLOAD_SESSION_TTL", 24*time.Hour),
+		UploadWatchdogInterval:    getEnvDuration("UPLOAD_WATCHDOG_INTERVAL", 10*time.Minute),
+		UploadWatchdogBatch:       getEnvInt("UPLOAD_WATCHDOG_BATCH", 100),
+		AIAPIBase:                 strings.TrimRight(getEnv("AI_API_BASE", ""), "/"),
+		AIAPIKey:                  getEnv("AI_API_KEY", ""),
+		AIModel:                   getEnv("AI_MODEL", ""),
+		AIChatCompletionsPath:     strings.TrimSpace(getEnv("AI_CHAT_COMPLETIONS_PATH", "")),
+		AIHTTPReferer:             strings.TrimSpace(getEnv("AI_HTTP_REFERER", getEnv("APP_PUBLIC_URL", ""))),
+		AIXTitle:                  strings.TrimSpace(getEnv("AI_X_TITLE", "CloudVault")),
+		AIRequestTimeout:          getEnvDuration("AI_TIMEOUT", 30*time.Second),
+		AIMaxTokens:               getEnvInt("AI_MAX_TOKENS", 512),
+		AIHistoryLimit:            getEnvInt("AI_HISTORY_LIMIT", 20),
+		AISystemPrompt:            getEnv("AI_SYSTEM_PROMPT", "You are a concise CloudVault assistant. Answer in Chinese for Chinese questions."),
+		ESEnabled:                 getEnvBool("ES_ENABLED", false),
+		ESAddress:                 strings.TrimRight(getEnv("ES_ADDRESS", ""), "/"),
+		ESIndex:                   strings.TrimSpace(getEnv("ES_INDEX", "cloudvault_user_files")),
+		ESAPIKey:                  strings.TrimSpace(getEnv("ES_API_KEY", "")),
+		ESUsername:                strings.TrimSpace(getEnv("ES_USERNAME", "")),
+		ESPassword:                getEnv("ES_PASSWORD", ""),
+		ESTimeout:                 getEnvDuration("ES_TIMEOUT", 5*time.Second),
+		ESContentMaxBytes:         getEnvInt64("ES_CONTENT_MAX_BYTES", 128*1024),
+		PreviewTranscodeEnabled:   getEnvBool("PREVIEW_TRANSCODE_ENABLED", false),
+		PreviewTranscodeFFmpeg:    strings.TrimSpace(getEnv("PREVIEW_TRANSCODE_FFMPEG", "ffmpeg")),
+		PreviewTranscodeTimeout:   getEnvDuration("PREVIEW_TRANSCODE_TIMEOUT", 5*time.Minute),
+		PreviewTranscodeMaxBytes:  getEnvInt64("PREVIEW_TRANSCODE_MAX_BYTES", 0),
 	}
 
 	InitStorageConfig()

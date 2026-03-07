@@ -22,6 +22,7 @@ const state = {
   folderCache: {},
   recycleFiles: [],
   recycleSelected: new Map(),
+  aiHistory: [],
 };
 
 function $(id) {
@@ -92,6 +93,7 @@ function setToken(token) {
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
     localStorage.removeItem(TOKEN_STORAGE_KEY);
     setUserProfile(null);
+    state.aiHistory = [];
   }
   updateAuthUI();
 }
@@ -819,7 +821,7 @@ async function handleArchiveDownload() {
       setStatus(status, selection.error, true);
       return;
     }
-    setStatus(status, "正在准备压缩包...");
+    setStatus(status, "正在准备压缩...");
     const name = $("archiveName").value.trim() || "archive.zip";
     const result = await apiFetchBlob("/file/download/archive", {
       method: "POST",
@@ -887,34 +889,62 @@ function initFilesPage() {
   restoreLastFolder();
 }
 
-async function hashFile(file) {
-  const buffer = await file.arrayBuffer();
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-  return Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+function handleInstantFileChange() {
+  const file = $("instantFile")?.files?.[0];
+  const nameInput = $("instantName");
+  const sizeInput = $("instantSize");
+  const hashInput = $("instantHash");
+  if (!file) {
+    if (nameInput) nameInput.value = "";
+    if (sizeInput) sizeInput.value = "";
+    if (hashInput) hashInput.value = "";
+    return;
+  }
+  if (nameInput) nameInput.value = file.name;
+  if (sizeInput) sizeInput.value = file.size;
+  if (hashInput) hashInput.value = "";
 }
 
-function describeUploadTarget(path) {
-  const normalized = normalizePath(path);
-  return normalized ? normalized : "/";
+function applyLastUploadTarget() {
+  const status = $("uploadTargetStatus");
+  const input = $("uploadTargetPath");
+  const stored = loadLastFolder();
+  if (!stored || !stored.path) {
+    if (status) {
+      setStatus(status, "未找到最近目录，请先在文件页进入目录。", true);
+    }
+    return;
+  }
+  if (input) {
+    input.value = stored.path;
+  }
+  if (status) {
+    setStatus(status, `已切换至：${stored.path}`);
+  }
 }
 
 async function resolveUploadTarget() {
   const status = $("uploadTargetStatus");
   const input = $("uploadTargetPath");
-  const createMissing = $("uploadCreateMissing")?.checked;
+  const createMissing = Boolean($("uploadCreateMissing")?.checked);
+  const rawPath = input ? input.value.trim() : "";
+  if (!rawPath) {
+    if (status) {
+      setStatus(status, "目标目录：/");
+    }
+    return 0;
+  }
   const stored = loadLastFolder();
   const baseId = stored?.id || 0;
-  const rawPath = input ? input.value : "";
   try {
-    const parentId = await resolvePathToFolderId(rawPath, {
-      baseId,
-      createMissing: Boolean(createMissing),
-    });
+    const parentId = await resolvePathToFolderId(rawPath, { baseId, createMissing });
+    let displayPath = rawPath;
+    if (!rawPath.startsWith("/") && rawPath.toLowerCase() !== "root") {
+      const basePath = stored?.path || "/";
+      displayPath = `${basePath.replace(/\/$/, "")}/${rawPath}`.replace(/\/+/g, "/");
+    }
     if (status) {
-      const label = rawPath ? describeUploadTarget(rawPath) : stored?.path || "/";
-      setStatus(status, `目标目录已就绪：${label}`);
+      setStatus(status, `目标目录：${displayPath} (#${parentId})`);
     }
     return parentId;
   } catch (err) {
@@ -924,39 +954,6 @@ async function resolveUploadTarget() {
     throw err;
   }
 }
-
-function applyLastUploadTarget() {
-  const status = $("uploadTargetStatus");
-  const input = $("uploadTargetPath");
-  const stored = loadLastFolder();
-  if (!input) return;
-  if (stored?.path) {
-    input.value = stored.path;
-    setStatus(status, `已切换至：${stored.path}`);
-  } else {
-    setStatus(status, "No target folder selected yet.", true);
-  }
-}
-
-async function handleInstantHash() {
-  const status = $("instantStatus");
-  try {
-    const file = $("instantFile").files[0];
-    if (!file) {
-      setStatus(status, "Please select a file first.", true);
-      return;
-    }
-    setStatus(status, "正在计算哈希...");
-    const hash = await hashFile(file);
-    $("instantName").value = file.name;
-    $("instantSize").value = file.size;
-    $("instantHash").value = hash;
-    setStatus(status, `哈希完成：${hash.slice(0, 12)}...`);
-  } catch (err) {
-    setStatus(status, err.message, true);
-  }
-}
-
 async function handleInstantUpload() {
   const status = $("instantStatus");
   try {
@@ -971,65 +968,37 @@ async function handleInstantUpload() {
     const hashInput = $("instantHash");
     if (nameInput) nameInput.value = file.name;
     if (sizeInput) sizeInput.value = file.size;
+    if (hashInput) hashInput.value = "";
 
-    let hash = hashInput ? hashInput.value.trim() : "";
-    if (!hash) {
-      setStatus(status, "正在计算哈希...");
-      hash = await hashFile(file);
-      if (hashInput) hashInput.value = hash;
-    }
-
-    setStatus(status, "正在提交秒传...");
+    setStatus(status, "正在提交上传...");
     const parentId = await resolveUploadTarget();
+    const form = new FormData();
+    form.append("file", file, file.name);
+    form.append("file_name", file.name);
+    form.append("parent_id", String(parentId || 0));
     const data = await apiFetch("/file/upload/hash", {
       method: "POST",
-      body: JSON.stringify({
-        file_id: 0,
-        file_name: file.name,
-        size: Number(file.size),
-        hash,
-        parent_id: parentId,
-        is_dir: false,
-      }),
+      body: form,
     });
     const result = unwrap(data) || {};
-    const instantHit = result.instant === true && Number(result.file_id) > 0;
-    if (instantHit) {
-      setStatus(status, "秒传成功。");
+    if (hashInput && result.hash) {
+      hashInput.value = result.hash;
+    }
+    if (result.reused) {
+      setStatus(status, "秒传命中，上传完成。");
     } else {
-      const reason = String(result.reason || "");
-      if (reason === "object_missing") {
-        setStatus(status, "秒传记录存在但对象缺失，正在自动切换普通上传...");
-      } else if (reason === "size_mismatch") {
-        setStatus(status, "哈希命中但大小不一致，正在自动切换普通上传...");
-      } else if (result.instant === true && !result.file_id) {
-        setStatus(status, "秒传返回异常，正在自动切换普通上传...");
-      } else {
-        setStatus(status, "未命中秒传，正在自动切换普通上传...");
-      }
-      const fallback = await uploadByMultipart(file, parentId, status, null, hash);
-      if (fallback.instant) {
-        setStatus(status, "未命中秒传后重试命中秒传。");
-      } else {
-        setStatus(status, "未命中秒传，首次已使用普通上传完成。");
-      }
+      setStatus(status, "上传完成。");
     }
   } catch (err) {
     setStatus(status, err.message, true);
   }
 }
-
-async function uploadByMultipart(file, parentId, status, bar, knownHash = "") {
+async function uploadByMultipart(file, parentId, status, bar) {
   const payload = decodeJWT(state.token);
   if (!payload) {
     throw new Error("Login required.");
   }
 
-  let hash = knownHash;
-  if (!hash) {
-    setStatus(status, "正在计算哈希...");
-    hash = await hashFile(file);
-  }
   const chunkSizeMB = Number($("multipartChunkSize")?.value) || 5;
   const chunkSize = Math.max(1, chunkSizeMB) * 1024 * 1024;
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
@@ -1037,11 +1006,9 @@ async function uploadByMultipart(file, parentId, status, bar, knownHash = "") {
   const initData = await apiFetch("/file/upload/multipart/init", {
     method: "POST",
     body: JSON.stringify({
-      user_id: payload.user_id,
       file_id: 0,
       file_name: file.name,
       size: file.size,
-      hash,
       chunk_size: chunkSize,
       total_chunks: totalChunks,
       parent_id: parentId,
@@ -1087,12 +1054,12 @@ async function uploadByMultipart(file, parentId, status, bar, knownHash = "") {
     }
   }
 
-  setStatus(status, "正在完成上传...");
-  await apiFetch("/file/upload/multipart/complete", {
+  setStatus(status, "正在合并上传...");
+  const completeData = await apiFetch("/file/upload/multipart/complete", {
     method: "POST",
     body: JSON.stringify({
+      upload_id: uploadId,
       file_id: 0,
-      file_hash: hash,
       file_name: file.name,
       file_size: file.size,
       total_chunks: totalChunks,
@@ -1101,9 +1068,9 @@ async function uploadByMultipart(file, parentId, status, bar, knownHash = "") {
     }),
   });
   if (bar) bar.style.width = "100%";
-  return { instant: false };
+  const completeResult = unwrap(completeData) || {};
+  return { instant: false, hash: completeResult.hash || "" };
 }
-
 async function handleMultipartUpload() {
   const status = $("multipartStatus");
   const bar = $("multipartBar");
@@ -1119,7 +1086,11 @@ async function handleMultipartUpload() {
       setStatus(status, "Instant upload hit, multipart skipped.");
       return;
     }
-    setStatus(status, "Multipart upload completed.");
+    if (result.hash) {
+      setStatus(status, `上传完成，Hash: ${result.hash.slice(0, 12)}...`);
+    } else {
+      setStatus(status, "上传完成。");
+    }
   } catch (err) {
     setStatus(status, err.message, true);
   }
@@ -1239,18 +1210,15 @@ async function uploadFileMultipartForFolder(file, parentId, chunkSizeMB, statusC
     throw new Error("Login required.");
   }
 
-  const hash = await hashFile(file);
   const chunkSize = Math.max(1, chunkSizeMB) * 1024 * 1024;
   const totalChunks = Math.max(1, Math.ceil(file.size / chunkSize));
 
   const initData = await apiFetch("/file/upload/multipart/init", {
     method: "POST",
     body: JSON.stringify({
-      user_id: payload.user_id,
       file_id: 0,
       file_name: file.name,
       size: file.size,
-      hash,
       chunk_size: chunkSize,
       total_chunks: totalChunks,
       parent_id: parentId,
@@ -1260,7 +1228,7 @@ async function uploadFileMultipartForFolder(file, parentId, chunkSizeMB, statusC
   const result = unwrap(initData) || {};
   if (result.instant) {
     if (statusCb) {
-      statusCb(`已秒传 ${file.name}`);
+      statusCb(`秒传命中 ${file.name}`);
     }
     return;
   }
@@ -1292,8 +1260,8 @@ async function uploadFileMultipartForFolder(file, parentId, chunkSizeMB, statusC
   await apiFetch("/file/upload/multipart/complete", {
     method: "POST",
     body: JSON.stringify({
+      upload_id: uploadId,
       file_id: 0,
-      file_hash: hash,
       file_name: file.name,
       file_size: file.size,
       total_chunks: totalChunks,
@@ -1302,7 +1270,6 @@ async function uploadFileMultipartForFolder(file, parentId, chunkSizeMB, statusC
     }),
   });
 }
-
 async function handleFolderUpload() {
   const status = $("folderStatus");
   try {
@@ -1373,7 +1340,6 @@ async function handleURLUpload() {
 }
 
 function initUploadPage() {
-  const instantHashBtn = $("instantHashBtn");
   const instantUploadBtn = $("instantUploadBtn");
   const multipartBtn = $("multipartBtn");
   const urlUploadBtn = $("urlUploadBtn");
@@ -1383,13 +1349,12 @@ function initUploadPage() {
   const uploadStatus = $("uploadTargetStatus");
   const instantFile = $("instantFile");
 
-  if (instantHashBtn) instantHashBtn.addEventListener("click", handleInstantHash);
   if (instantUploadBtn) instantUploadBtn.addEventListener("click", handleInstantUpload);
   if (multipartBtn) multipartBtn.addEventListener("click", handleMultipartUpload);
   if (urlUploadBtn) urlUploadBtn.addEventListener("click", handleURLUpload);
   if (folderUploadBtn) folderUploadBtn.addEventListener("click", handleFolderUpload);
   if (uploadUseLastBtn) uploadUseLastBtn.addEventListener("click", applyLastUploadTarget);
-  if (instantFile) instantFile.addEventListener("change", handleInstantHash);
+  if (instantFile) instantFile.addEventListener("change", handleInstantFileChange);
 
   const stored = loadLastFolder();
   if (uploadTargetInput && stored?.path) {
@@ -2203,6 +2168,75 @@ function initShareAnalyticsPage() {
   loadShareLogs();
 }
 
+function appendAIMessage(role, content) {
+  const log = $("aiChatLog");
+  if (!log) return;
+  const bubble = document.createElement("div");
+  bubble.className = `chat-bubble ${role}`;
+  bubble.textContent = content;
+  log.appendChild(bubble);
+  log.scrollTop = log.scrollHeight;
+}
+
+function resetAIChat() {
+  state.aiHistory = [];
+  const log = $("aiChatLog");
+  if (log) log.innerHTML = "";
+  const status = $("aiStatus");
+  if (status) setStatus(status, "对话已清空。");
+}
+
+async function handleAISend() {
+  const status = $("aiStatus");
+  const input = $("aiPrompt");
+  if (!input) return;
+  const question = input.value.trim();
+  if (!question) {
+    setStatus(status, "请输入问题。", true);
+    return;
+  }
+  if (!state.token) {
+    setStatus(status, "请先登录。", true);
+    return;
+  }
+  const history = state.aiHistory.slice(-10);
+  appendAIMessage("user", question);
+  state.aiHistory.push({ role: "user", content: question });
+  state.aiHistory = state.aiHistory.slice(-20);
+  input.value = "";
+  setStatus(status, "AI 正在响应...");
+  try {
+    const data = await apiFetch("/ai/ask", {
+      method: "POST",
+      body: JSON.stringify({ question, history }),
+    });
+    const answer = data?.answer || data?.data?.answer || "";
+    if (!answer) {
+      throw new Error("AI 回复为空");
+    }
+    appendAIMessage("assistant", answer);
+    state.aiHistory.push({ role: "assistant", content: answer });
+    state.aiHistory = state.aiHistory.slice(-20);
+    setStatus(status, "完成。");
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+function initAIPage() {
+  const sendBtn = $("aiSendBtn");
+  const clearBtn = $("aiClearBtn");
+  const input = $("aiPrompt");
+  if (sendBtn) sendBtn.addEventListener("click", handleAISend);
+  if (clearBtn) clearBtn.addEventListener("click", resetAIChat);
+  if (input) {
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        handleAISend();
+      }
+    });
+  }
+}
 function initHomePage() {
   const pingBtn = $("pingBtn");
   if (!pingBtn) return;
@@ -2239,6 +2273,7 @@ function initPage() {
     library: initLibraryPage,
     "share-analytics": initShareAnalyticsPage,
     preview: initPreviewPage,
+    ai: initAIPage,
   };
   if (map[page]) {
     map[page]();
@@ -2246,6 +2281,12 @@ function initPage() {
 }
 
 initPage();
+
+
+
+
+
+
 
 
 

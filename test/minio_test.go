@@ -180,6 +180,3 @@ func TestMinioDownloadFileSuccess(t *testing.T) {
 	// 我们只验证函数调用不会 panic。
 	_ = err
 }
-
-
-

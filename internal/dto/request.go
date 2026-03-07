@@ -32,8 +32,9 @@ type MultipartUploadChunkRequest struct {
 }
 
 type MultipartCompleteRequest struct {
+	UploadID    string `json:"upload_id"`
 	FileId      uint64 `json:"file_id"`
-	FileHash    string `json:"file_hash" binding:"required"`
+	FileHash    string `json:"file_hash"`
 	FileName    string `json:"file_name" binding:"required"`
 	FileSize    int64  `json:"file_size" binding:"gte=0"`
 	TotalChunks int    `json:"total_chunks" binding:"gte=0"`

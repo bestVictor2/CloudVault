@@ -29,6 +29,7 @@
         <a href="./library.html">内容扩展</a>
         <a href="./share-analytics.html">分享统计</a>
         <a href="./preview.html">预览</a>
+        <a href="./ai.html">AI 助手</a>
       </nav>
       <div class="auth-bar">
         <input id="apiBase" type="text" value="" />
@@ -72,7 +73,7 @@
         </div>
 
         <div class="panel wide">
-          <h3>秒传（Hash 上传）</h3>
+          <h3>秒传（后端 Hash）</h3>
           <div class="field">
             <label for="instantFile">本地文件</label>
             <input id="instantFile" type="file" />
@@ -88,12 +89,11 @@
             </div>
           </div>
           <div class="field">
-            <label for="instantHash">Hash（SHA-256）</label>
-            <input id="instantHash" type="text" />
+            <label for="instantHash">后端 Hash（SHA-256）</label>
+            <input id="instantHash" type="text" readonly />
           </div>
           <div class="actions">
-            <button id="instantHashBtn" class="ghost">计算 Hash</button>
-            <button id="instantUploadBtn" class="primary">提交秒传</button>
+            <button id="instantUploadBtn" class="primary">提交上传</button>
           </div>
           <div id="instantStatus" class="status">待操作</div>
         </div>

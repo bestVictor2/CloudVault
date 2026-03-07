@@ -1,4 +1,4 @@
-﻿package model
+package model
 
 import "time"
 
@@ -30,6 +30,3 @@ type DownloadTask struct {
 func (DownloadTask) TableName() string {
 	return "download_task"
 }
-
-
-

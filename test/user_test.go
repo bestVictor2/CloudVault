@@ -141,6 +141,3 @@ func TestIsEmailExist(t *testing.T) {
 		t.Fatalf("IsEmailExist should fail for non-exist email")
 	}
 }
-
-
-

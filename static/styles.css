@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap");
+﻿@import url("https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap");
 
 :root {
   --bg: #0b0f17;
@@ -575,6 +575,39 @@ button.warn {
 
 .mono {
   font-family: "JetBrains Mono", monospace;
+}
+
+.chat-log {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.chat-bubble {
+  max-width: 80%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  line-height: 1.6;
+  font-size: 14px;
+  white-space: pre-wrap;
+}
+
+.chat-bubble.user {
+  align-self: flex-end;
+  background: rgba(91, 217, 192, 0.16);
+  border: 1px solid rgba(91, 217, 192, 0.35);
+}
+
+.chat-bubble.assistant {
+  align-self: flex-start;
+  background: rgba(255, 122, 60, 0.12);
+  border: 1px solid rgba(255, 122, 60, 0.35);
 }
 
 @keyframes floatUp {

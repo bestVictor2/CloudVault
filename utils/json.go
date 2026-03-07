@@ -1,4 +1,4 @@
-﻿package utils
+package utils
 
 import "github.com/gin-gonic/gin"
 
@@ -18,6 +18,3 @@ func Fail(c *gin.Context, err error) {
 		"msg":  err.Error(),
 	})
 }
-
-
-

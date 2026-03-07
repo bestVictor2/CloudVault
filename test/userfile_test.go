@@ -326,6 +326,3 @@ func TestGetDeletedFile(t *testing.T) {
 		t.Fatal("file should be marked as deleted")
 	}
 }
-
-
-
