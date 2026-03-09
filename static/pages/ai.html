@@ -42,18 +42,26 @@
     </header>
 
     <main class="layout">
-      <section class="panel">
-        <div class="panel-header">
+      <section class="page-hero">
+        <div class="hero-card">
           <h2>AI 智能问答</h2>
           <p>调用后端 AI Agent，可结合你的文件数据执行检索、预览链接与分享辅助。</p>
         </div>
-        <div class="panel-body">
-          <h2>提示</h2>
+        <div class="hero-card">
+          <h2>使用说明</h2>
           <p>需要在后端配置 `AI_API_BASE`、`AI_API_KEY`、`AI_MODEL`。</p>
           <p>Agent 已接入文件工具：目录列表、文件搜索、回收站查询、预览/下载链接生成、分享链接创建。</p>
           <p>推荐免费方案：OpenRouter（可用 `openrouter/free` 路由免费模型）。</p>
           <p>示例：`AI_API_BASE=https://openrouter.ai/api/v1`，`AI_MODEL=openrouter/free`。</p>
+        </div>
+      </section>
 
+      <section class="panel">
+        <div class="panel-header">
+          <h2>对话区</h2>
+          <p>输入问题并发送，系统将返回智能回答。</p>
+        </div>
+        <div class="panel-body">
           <div class="chat">
             <div class="chat-header">
               <h3>对话记录</h3>

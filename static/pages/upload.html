@@ -45,11 +45,11 @@
       <section class="page-hero">
         <div class="hero-card">
           <h2>上传中心</h2>
-          <p>支持秒传、分片上传、文件夹上传，以及 URL 导入上传。</p>
+          <p>支持秒传、分片上传、文件夹上传，以及 URL 导入。</p>
         </div>
         <div class="hero-card">
           <h2>说明</h2>
-          <p>URL 导入会直接从远端拉取文件并写入 MinIO，不依赖本地文件路径。</p>
+          <p>URL 导入会从远端拉取文件并写入 MinIO，不依赖本地文件路径。</p>
         </div>
       </section>
 
@@ -137,7 +137,7 @@
         <div class="panel wide">
           <h3>文件夹上传</h3>
           <div class="field">
-            <label for="folderInput">选择文件名</label>
+            <label for="folderInput">选择文件夹</label>
             <input id="folderInput" type="file" webkitdirectory directory multiple />
           </div>
           <div class="field row">
@@ -147,7 +147,7 @@
             </div>
           </div>
           <div class="actions">
-            <button id="folderUploadBtn" class="primary">上传文件名</button>
+            <button id="folderUploadBtn" class="primary">上传文件夹</button>
           </div>
           <div id="folderStatus" class="status">待操作</div>
           <p class="note">文件按顺序上传，可降低并发压力。</p>

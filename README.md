@@ -1,166 +1,157 @@
 # CloudVault
 
-CloudVault 是一个前后端分离的个人网盘系统，覆盖上传、下载、分享、回收站、离线下载、预览与用户行为统计等核心能力。  
-后端基于 Go + Gin，前端为静态页面，适合作为个人项目、课程设计或网盘类系统的基础模板。
+CloudVault 是一个面向大文件传输和高并发场景的网盘后端项目，提供上传、下载、分享、回收站、离线下载、搜索、预览与 AI 助手能力。
 
-## 项目状态
+## 功能完成度核查（2026-03-09）
 
-- 当前可用: 核心网盘能力已可跑通
-- 架构形态: 单体服务 + 异步 Worker
-- 维护方向: 继续补齐存储集群、分库分表、检索与预览增强
+| 能力 | 状态 | 说明 |
+| --- | --- | --- |
+| 文件上传（普通/秒传/分片） | 已完成 | 支持 Hash 秒传、分片上传、断点续传、分片状态回传 |
+| 分片合并幂等控制 | 已完成 | `Redis` 分布式锁保护合并互斥，避免重复合并 |
+| 文件下载（流式/直链/批量 ZIP） | 已完成 | 支持服务端流式下载、预签名 URL、ZIP 打包下载 |
+| 分享与提取码 | 已完成 | 创建分享、提取码校验、过期失效、公开下载 |
+| 回收站 | 已完成 | 支持列表、恢复、彻底删除，删除链路处理对象引用计数 |
+| 离线下载任务系统 | 已完成 | `RabbitMQ` 入队、Worker 并发消费、失败重试、延迟重试、DLQ |
+| 离线任务进度查询 | 已完成 | 任务状态查询 + 流式下载进度回写（非仅 0/100） |
+| 搜索能力 | 已完成 | `Elasticsearch` 检索 + 索引同步 + `MySQL` 回退查询 |
+| 预览能力 | 已完成 | 预览直链，支持可选视频转码预览 |
+| Redis 缓存与失效策略 | 已完成 | 用户信息、文件对象、文件列表缓存 + 主动失效 |
+| AI Agent（Function Calling） | 已完成 | 自然语言文件查询、下载链接生成、分享链接生成 |
+| RAG 文档问答 | 已完成 | 新增 `/api/ai/rag`，检索用户文档片段后生成答案并返回引用来源 |
+| AI 对话历史记录 | 已完成 | Redis 持久化用户历史；支持历史查询与清空，`AI_HISTORY_TTL` 控制过期时间 |
 
-## 功能概览
+## 架构概览
 
-| 模块 | 已实现能力 |
-| --- | --- |
-| 认证与用户 | 注册、邮箱激活、登录、JWT 鉴权、个人资料读写 |
-| 文件管理 | 列表/搜索、重命名、移动、复制、建目录、批量删除 |
-| 上传能力 | 秒传、分片上传（断点续传）、URL 导入上传 |
-| 下载能力 | 预签名下载、流式下载、ZIP 打包下载 |
-| 回收站 | 列表、恢复、彻底删除（含对象引用计数清理） |
-| 分享能力 | 创建分享、提取码、过期失效、公开下载 |
-| 离线下载 | RabbitMQ 队列、失败重试、限速与并发控制 |
-| 用户内容扩展 | 收藏、最近访问、常用目录 |
-| 行为统计 | 活动事件流、分享访问日志、来源统计、汇总接口 |
-| 安全防护 | SSRF/Zip Slip/CRLF 防护、排序字段白名单、JWT 算法校验 |
+- 对象存储与元数据解耦
+  - 对象数据：`MinIO`
+  - 业务元数据：`MySQL`（`file_object`、`user_file`、`upload_session`、`file_chunk` 等）
+- 高并发一致性
+  - 合并阶段：`Redis` 分布式锁
+  - 去重机制：`Hash + RefCount`
+- 异步任务
+  - `RabbitMQ`：主队列 + 重试队列 + DLQ
+  - Worker：并发控制 + 限速 + 重试策略
+- 检索与 AI
+  - 检索：`Elasticsearch`（失败/不一致时回退 `MySQL`）
+  - AI Agent：函数调用工具
+  - RAG：检索召回 -> 片段构建 -> 大模型生成
 
-## 技术栈
+## 本次补齐内容
 
-| 层 | 技术 |
-| --- | --- |
-| 后端 | Go 1.24, Gin, GORM |
-| 存储 | MySQL, Redis, MinIO |
-| 异步任务 | RabbitMQ, Worker |
-| 认证 | JWT |
-| 前端 | 静态页面 (`static/`) |
+- 修复搜索一致性
+  - 强化 ES 结果校验，索引延迟/脏索引场景自动回退 MySQL，保证查询正确性。
+- 增强离线下载任务进度
+  - 下载流中按阈值回写 `download_task.progress`，任务页面可看到持续进度变化。
+- 新增 RAG 文档问答接口
+  - `POST /api/ai/rag`
+  - 返回答案、模型名、引用片段（文件 ID/名称/片段内容）。
+- 新增 AI 历史记录能力
+  - 历史自动持久化（Redis），支持服务端历史续聊（无需前端携带完整 history）。
+  - 新增 `GET /api/ai/history`、`DELETE /api/ai/history`。
+  - 新增配置项 `AI_HISTORY_TTL`（默认 `72h`）。
 
-## 目录结构
+## 关键 API
 
-```text
-CloudVault/
-├─ cmd/                    # 可执行入口（worker）
-├─ config/                 # 配置与环境变量
-├─ internal/               # 业务实现（handler/service/repo/worker）
-├─ model/                  # 数据模型
-├─ router/                 # 路由定义
-├─ static/                 # 前端页面与静态资源
-├─ test/                   # 测试代码
-├─ main.go                 # API 服务入口
-└─ README.md
+- 认证
+  - `POST /api/register`
+  - `GET /api/activate`
+  - `POST /api/login`
+- 文件
+  - `POST /api/file/list`
+  - `POST /api/file/search`
+  - `POST /api/file/upload/hash`
+  - `POST /api/file/upload/multipart/init`
+  - `POST /api/file/upload/multipart/chunk`
+  - `POST /api/file/upload/multipart/complete`
+  - `POST /api/file/download/minio`
+  - `POST /api/file/download/url`
+  - `POST /api/file/download/archive`
+  - `GET /api/file/preview/:fileID`
+- 离线下载
+  - `POST /api/file/download/offline`
+  - `GET /api/file/download/tasks`
+- 回收站
+  - `POST /api/recycle/list`
+  - `POST /api/recycle/restore`
+  - `POST /api/recycle/delete`
+- 分享
+  - `POST /api/share/create`
+  - `GET /api/share/download/:shareID`
+  - `GET /api/share/access/logs`
+  - `GET /api/share/access/stats`
+- AI
+  - `POST /api/ai/ask`
+  - `POST /api/ai/rag`
+  - `GET /api/ai/history`
+  - `DELETE /api/ai/history`
+
+## AI 历史记录
+
+- 服务端会在 `/api/ai/ask` 与 `/api/ai/rag` 成功返回后，自动写入当前用户历史记录。
+- `GET /api/ai/history?limit=40`
+  - 返回当前用户最近会话消息（`items`）。
+- `DELETE /api/ai/history`
+  - 清空当前用户历史记录。
+- 相关配置：
+  - `AI_HISTORY_LIMIT`：历史保留条数（默认 `20`，用于构造上下文与存储裁剪）。
+  - `AI_HISTORY_TTL`：历史键过期时间（默认 `72h`，`0` 表示不过期）。
+
+## RAG 接口示例
+
+```http
+POST /api/ai/rag
+Content-Type: application/json
+Authorization: Bearer <token>
+
+{
+  "question": "总结一下我最近上传的设计文档重点",
+  "top_k": 5
+}
 ```
 
-## 快速开始
+返回示例（节选）：
 
-### 1. 依赖准备
+```json
+{
+  "answer": "...",
+  "model": "...",
+  "references": [
+    {
+      "file_id": 12,
+      "file_name": "design.md",
+      "path": "/docs/design.md",
+      "snippet": "..."
+    }
+  ]
+}
+```
 
-- Go `1.24+`（项目使用 `toolchain go1.24.6`）
+## 运行要求
+
+- Go 1.24+
 - MySQL
 - Redis
 - MinIO
 - RabbitMQ
+- Elasticsearch（可选，关闭时自动走 MySQL 搜索）
 
-### 2. 配置环境变量
-
-先配置最常用项（其余可使用默认值）:
-
-| 组件 | 环境变量 | 默认值 |
-| --- | --- | --- |
-| JWT | `JWT_SECRET` | `l=ax+b` |
-| MySQL | `DB_HOST/DB_PORT/DB_USER/DB_PASS/DB_NAME` | `localhost/3306/root/root/CloudVault` |
-| Redis | `REDIS_HOST/REDIS_PORT/REDIS_PASSWORD` | `localhost/6379/(空)` |
-| MinIO | `MINIO_HOST/MINIO_PORT/MINIO_USERNAME/MINIO_PASSWORD/BUCKET_NAME` | `localhost/9000/minioadmin/minioadmin/netdisk` |
-| RabbitMQ | `RABBITMQ_URL` 或 `RABBITMQ_HOST/PORT/USER/PASSWORD/VHOST` | 自动拼装或 `localhost/5672/guest/guest//` |
-
-离线下载相关可选参数:
-
-- `DOWNLOAD_WORKER_CONCURRENCY` (默认 `4`)
-- `DOWNLOAD_RATE` (默认 `2`)
-- `DOWNLOAD_BURST` (默认 `4`)
-- `DOWNLOAD_RETRY_MAX` (默认 `5`)
-- `DOWNLOAD_RETRY_DELAYS` (默认 `10s,30s,2m,10m,30m`)
-- `DOWNLOAD_HTTP_TIMEOUT` (默认 `30m`)
-- `DOWNLOAD_ALLOW_PRIVATE` (默认 `false`)
-- `DOWNLOAD_ALLOW_HOSTS` (逗号分隔白名单)
-- `DOWNLOAD_MAX_BYTES` (默认 `0` 表示不限制)
-
-### 3. 启动 API 服务
+## 启动
 
 ```powershell
-$env:GO111MODULE='on'
 go run .
 ```
 
-默认监听 `:8000`，API 基地址为 `http://localhost:8000/api`。
-
-### 4. 启动 Worker
+启动 Worker：
 
 ```powershell
-$env:GO111MODULE='on'
 go run ./cmd/worker
 ```
 
-当前会同时启动:
-
-- 下载任务 Worker (`download.queue`)
-- 活动统计 Worker (`activity.queue`)
-
-### 5. 访问前端
-
-直接打开 `static/index.html`，将 API Base 设置为 `http://localhost:8000/api`。
-
-常用页面:
-
-- `static/pages/files.html`
-- `static/pages/upload.html`
-- `static/pages/recycle.html`
-- `static/pages/share.html`
-- `static/pages/tasks.html`
-- `static/pages/profile.html`
-- `static/pages/library.html`
-- `static/pages/share-analytics.html`
-
-## 核心接口一览
-
-| 模块 | 路由 |
-| --- | --- |
-| 认证 | `POST /api/register`, `GET /api/activate`, `POST /api/login` |
-| 文件 | `POST /api/file/list`, `POST /api/file/search`, `POST /api/file/rename`, `POST /api/file/move`, `POST /api/file/copy` |
-| 上传 | `POST /api/file/upload/hash`, `POST /api/file/upload/url`, `POST /api/file/upload/multipart/*` |
-| 下载 | `POST /api/file/download/minio`, `POST /api/file/download/url`, `POST /api/file/download/archive` |
-| 预览 | `GET /api/file/preview/:fileID` |
-| 离线任务 | `POST /api/file/download/offline`, `GET /api/file/download/tasks` |
-| 回收站 | `POST /api/recycle/list`, `POST /api/recycle/restore`, `POST /api/recycle/delete` |
-| 分享 | `POST /api/share/create`, `GET /api/share/download/:shareID` |
-| 分享统计 | `GET /api/share/access/logs`, `GET /api/share/access/stats` |
-| 用户中心 | `GET /api/user/me`, `PUT /api/user/me` |
-| 内容扩展 | `GET/POST/DELETE /api/user/favorites`, `GET /api/user/recent`, `GET /api/user/common-dirs` |
-| 活动汇总 | `GET /api/user/activity/summary?days=7` |
-
 ## 测试
 
-确保 MySQL、Redis、MinIO、RabbitMQ 均可用后执行:
-
 ```powershell
-$env:GO111MODULE='on'
 go test ./...
 ```
-
-项目会在启动时执行 AutoMigrate，无需手动建表。
-
-## 注意事项
-
-- Redis 过期事件依赖 `notify-keyspace-events`，程序会尝试自动开启（需要 `CONFIG SET` 权限）。
-- 分享过期与离线下载重试逻辑依赖 Redis/RabbitMQ/Worker 常驻。
-- 当前主链路默认单 MinIO，存储集群能力仍在演进中。
-
-## 后续规划
-
-- 存储集群主链路切换与迁移能力完善
-- 分库分表在业务层全面落地
-- 搜索增强（全文检索）与预览增强（转码）
-- 任务中心可视化与可操作性提升
-- 配额、权限模型、版本管理等企业级能力扩展
-- 增加看门狗机制、增加hash校验、目前是在前端生成hash、改进成后端。
 
 ## License
 

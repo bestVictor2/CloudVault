@@ -59,6 +59,7 @@ type Config struct {
 	AIRequestTimeout          time.Duration
 	AIMaxTokens               int
 	AIHistoryLimit            int
+	AIHistoryTTL              time.Duration
 	AISystemPrompt            string
 	ESEnabled                 bool
 	ESAddress                 string
@@ -298,6 +299,7 @@ func InitConfig() {
 		AIRequestTimeout:          getEnvDuration("AI_TIMEOUT", 30*time.Second),
 		AIMaxTokens:               getEnvInt("AI_MAX_TOKENS", 512),
 		AIHistoryLimit:            getEnvInt("AI_HISTORY_LIMIT", 20),
+		AIHistoryTTL:              getEnvDuration("AI_HISTORY_TTL", 72*time.Hour),
 		AISystemPrompt:            getEnv("AI_SYSTEM_PROMPT", "You are a concise CloudVault assistant. Answer in Chinese for Chinese questions."),
 		ESEnabled:                 getEnvBool("ES_ENABLED", false),
 		ESAddress:                 strings.TrimRight(getEnv("ES_ADDRESS", ""), "/"),

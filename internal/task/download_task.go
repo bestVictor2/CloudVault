@@ -95,11 +95,32 @@ func ProcessDownloadTask(ctx context.Context, taskID uint64) error {
 		return nil
 	}
 
-	size, err := service.DownloadByHTTP( // 通过 url 进行下载
+	lastProgress := 0
+	updateProgress := func(downloaded, total int64) {
+		if total <= 0 {
+			return
+		}
+		progress := int(downloaded * 100 / total)
+		if progress < 0 {
+			progress = 0
+		}
+		if progress > 99 {
+			progress = 99
+		}
+		if progress <= lastProgress {
+			return
+		}
+		lastProgress = progress
+		_ = repo.Db.Model(&model.DownloadTask{}).
+			Where("id = ? AND status = ?", taskID, "running").
+			Update("progress", progress).Error
+	}
+	size, err := service.DownloadByHTTPWithProgress(
 		ctx,
 		task.Source,
 		task.ObjectName,
 		task.UserID,
+		updateProgress,
 	)
 	if err != nil {
 		return err
@@ -125,7 +146,7 @@ func ProcessDownloadTask(ctx context.Context, taskID uint64) error {
 		Size:       size,
 		RefCount:   1,
 	}
-	if err := service.CreateFilesObject(fileObj); err != nil { // 如果文件已经存在
+	if err := service.CreateFilesObject(fileObj); err != nil {
 		existingObj, getErr := service.GetFileObjectByHash(task.ObjectName)
 		if getErr != nil {
 			cleanupObject()

@@ -350,8 +350,78 @@ func ValidateDownloadSourceURL(rawURL string) error {
 	return err
 }
 
+type downloadProgressReader struct {
+	reader        io.Reader
+	total         int64
+	readBytes     int64
+	reportedBytes int64
+	lastReportAt  time.Time
+	onProgress    func(downloaded, total int64)
+}
+
+func newDownloadProgressReader(
+	reader io.Reader,
+	total int64,
+	onProgress func(downloaded, total int64),
+) io.Reader {
+	if onProgress == nil || reader == nil || total <= 0 {
+		return reader
+	}
+	return &downloadProgressReader{
+		reader:     reader,
+		total:      total,
+		onProgress: onProgress,
+	}
+}
+
+func (r *downloadProgressReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 {
+		r.readBytes += int64(n)
+		if r.shouldReportProgress() {
+			r.reportedBytes = r.readBytes
+			r.lastReportAt = time.Now()
+			r.onProgress(r.readBytes, r.total)
+		}
+	}
+	if err == io.EOF && r.readBytes >= r.total && r.reportedBytes < r.readBytes {
+		r.onProgress(r.readBytes, r.total)
+		r.reportedBytes = r.readBytes
+		r.lastReportAt = time.Now()
+	}
+	return n, err
+}
+
+func (r *downloadProgressReader) shouldReportProgress() bool {
+	if r.readBytes <= 0 {
+		return false
+	}
+	if r.readBytes >= r.total {
+		return true
+	}
+	const minStepBytes = 1 << 20 // 1 MiB
+	if r.readBytes-r.reportedBytes >= minStepBytes {
+		return true
+	}
+	if r.lastReportAt.IsZero() || time.Since(r.lastReportAt) >= time.Second {
+		return true
+	}
+	return false
+}
+
 // DownloadByHTTP downloads a URL into MinIO.
 func DownloadByHTTP(ctx context.Context, rawURL string, fileName string, userId uint64) (int64, error) {
+	return DownloadByHTTPWithProgress(ctx, rawURL, fileName, userId, nil)
+}
+
+// DownloadByHTTPWithProgress downloads a URL into MinIO and reports stream progress.
+func DownloadByHTTPWithProgress(
+	ctx context.Context,
+	rawURL string,
+	fileName string,
+	userId uint64,
+	onProgress func(downloaded, total int64),
+) (int64, error) {
 	parsed, err := validateDownloadURL(rawURL)
 	if err != nil {
 		return 0, err
@@ -393,17 +463,21 @@ func DownloadByHTTP(ctx context.Context, rawURL string, fileName string, userId 
 	if storage.Default == nil {
 		return 0, fmt.Errorf("storage not initialized")
 	}
+	stream := newDownloadProgressReader(resp.Body, resp.ContentLength, onProgress)
 	if err := storage.Default.PutObject(
 		ctx,
 		config.AppConfig.BucketName,
 		BuildObjectName(userName, fileName),
-		resp.Body,
+		stream,
 		resp.ContentLength,
 		storage.PutOptions{
 			ContentType: resp.Header.Get("Content-Type"),
 		},
 	); err != nil {
 		return 0, err
+	}
+	if onProgress != nil {
+		onProgress(resp.ContentLength, resp.ContentLength)
 	}
 	return resp.ContentLength, nil
 }

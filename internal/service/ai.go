@@ -24,6 +24,9 @@ const (
 )
 
 const aiAgentSystemInstruction = "你是 CloudVault 的 AI Agent。涉及用户文件状态、ID、链接、回收站、分享时，优先调用工具获取真实数据，禁止臆造文件信息或链接。对有副作用的操作（如创建分享）需先说明将执行的动作，再返回执行结果。"
+const aiAgentStrictLinkInstruction = "If you provide any file URL (download/share/preview), it must be copied exactly from tool output. Never invent domains or paths."
+
+var aiAnswerURLPattern = regexp.MustCompile(`https?://[^\s\]\)>"']+`)
 
 type aiAPIMessage struct {
 	Role       string       `json:"role"`
@@ -119,6 +122,8 @@ func AskAI(ctx context.Context, userID uint64, req dto.AIAskRequest) (*dto.AIAsk
 		return nil, errors.New("question required")
 	}
 
+	history := resolveAIConversationHistory(ctx, userID, req.History)
+	req.History = history
 	messages := buildAIConversationMessages(req, question)
 	toolTraces := make([]dto.AIToolTrace, 0, aiAgentMaxRounds)
 
@@ -127,7 +132,13 @@ func AskAI(ctx context.Context, userID uint64, req dto.AIAskRequest) (*dto.AIAsk
 		parsed, err := requestAIChat(ctx, modelName, messages, true)
 		if err != nil {
 			if round == 0 && (isLikelyToolUnsupported(err) || isRetriableAIProviderError(err)) {
-				return askAIWithoutTools(ctx, modelName, messages)
+				resp, fallbackErr := askAIWithoutTools(ctx, modelName, messages)
+				if fallbackErr != nil {
+					return nil, fallbackErr
+				}
+				resp.Answer = finalizeAIAnswer(question, resp.Answer, toolTraces)
+				persistAIConversation(ctx, userID, history, question, resp.Answer)
+				return resp, nil
 			}
 			return nil, err
 		}
@@ -147,6 +158,8 @@ func AskAI(ctx context.Context, userID uint64, req dto.AIAskRequest) (*dto.AIAsk
 			if answer == "" {
 				return nil, errors.New("AI response empty")
 			}
+			answer = finalizeAIAnswer(question, answer, toolTraces)
+			persistAIConversation(ctx, userID, history, question, answer)
 			return &dto.AIAskResponse{
 				Answer:     answer,
 				Model:      activeModel,
@@ -196,6 +209,8 @@ func AskAI(ctx context.Context, userID uint64, req dto.AIAskRequest) (*dto.AIAsk
 	if answer == "" {
 		answer = "已执行多轮工具调用，但未生成最终答案，请重试。"
 	}
+	answer = finalizeAIAnswer(question, answer, toolTraces)
+	persistAIConversation(ctx, userID, history, question, answer)
 	return &dto.AIAskResponse{
 		Answer:     answer,
 		Model:      activeModel,
@@ -308,7 +323,7 @@ func buildAIConversationMessages(req dto.AIAskRequest, question string) []aiAPIM
 	if systemPrompt == "" {
 		systemPrompt = "You are a concise CloudVault assistant. Answer in Chinese for Chinese questions."
 	}
-	systemPrompt = strings.TrimSpace(systemPrompt + "\n" + aiAgentSystemInstruction)
+	systemPrompt = strings.TrimSpace(systemPrompt + "\n" + aiAgentSystemInstruction + "\n" + aiAgentStrictLinkInstruction)
 	if systemPrompt != "" {
 		messages = append(messages, aiAPIMessage{Role: "system", Content: systemPrompt})
 	}
@@ -996,6 +1011,140 @@ func buildAIToolFallbackAnswer(traces []dto.AIToolTrace) string {
 		return fmt.Sprintf("工具 `%s` 执行失败：%s", last.Name, last.Error)
 	}
 	return "我已完成所需数据查询，可继续告诉我下一步动作（如“生成下载链接”或“按关键词再筛选”）。"
+}
+
+func finalizeAIAnswer(question, answer string, traces []dto.AIToolTrace) string {
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return answer
+	}
+	toolLinks := collectVerifiedLinksFromToolTraces(traces)
+	answerLinks := extractHTTPLinks(answer)
+	if len(answerLinks) == 0 {
+		if isLinkIntentQuestion(question) && len(toolLinks) > 0 {
+			return buildVerifiedLinksAnswer(question, toolLinks)
+		}
+		return answer
+	}
+
+	allowed := make(map[string]struct{}, len(toolLinks))
+	for _, link := range toolLinks {
+		allowed[link] = struct{}{}
+	}
+	hasUnverifiedLink := len(allowed) == 0
+	if !hasUnverifiedLink {
+		for _, link := range answerLinks {
+			if _, ok := allowed[link]; !ok {
+				hasUnverifiedLink = true
+				break
+			}
+		}
+	}
+	if !hasUnverifiedLink {
+		return answer
+	}
+	if len(toolLinks) > 0 {
+		return buildVerifiedLinksAnswer(question, toolLinks)
+	}
+	if isLinkIntentQuestion(question) {
+		return "未能通过系统工具生成可用链接。请提供 file_id，或先让我列出文件后再生成下载链接。"
+	}
+	return answer
+}
+
+func collectVerifiedLinksFromToolTraces(traces []dto.AIToolTrace) []string {
+	out := make([]string, 0, len(traces))
+	seen := make(map[string]struct{})
+	appendLink := func(link string) {
+		link = strings.TrimSpace(link)
+		if link == "" {
+			return
+		}
+		if !strings.HasPrefix(link, "http://") && !strings.HasPrefix(link, "https://") && !strings.HasPrefix(link, "/") {
+			return
+		}
+		if _, ok := seen[link]; ok {
+			return
+		}
+		seen[link] = struct{}{}
+		out = append(out, link)
+	}
+	for _, trace := range traces {
+		if strings.TrimSpace(trace.Error) != "" {
+			continue
+		}
+		result, ok := trace.Result.(map[string]any)
+		if !ok || len(result) == 0 {
+			continue
+		}
+		if value, ok := result["download_url"].(string); ok {
+			appendLink(value)
+		}
+		if value, ok := result["share_url"].(string); ok {
+			appendLink(value)
+		}
+		if value, ok := result["preview_url"].(string); ok {
+			appendLink(value)
+		}
+		if value, ok := result["share_path"].(string); ok {
+			appendLink(value)
+		}
+	}
+	return out
+}
+
+func extractHTTPLinks(text string) []string {
+	matches := aiAnswerURLPattern.FindAllString(strings.TrimSpace(text), -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, raw := range matches {
+		link := strings.TrimSpace(raw)
+		link = strings.TrimRight(link, ".,;:!?)")
+		if link == "" {
+			continue
+		}
+		if _, ok := seen[link]; ok {
+			continue
+		}
+		seen[link] = struct{}{}
+		out = append(out, link)
+	}
+	return out
+}
+
+func isLinkIntentQuestion(question string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(question))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "下载") ||
+		strings.Contains(normalized, "download") ||
+		strings.Contains(normalized, "链接") ||
+		strings.Contains(normalized, "link") ||
+		strings.Contains(normalized, "分享") ||
+		strings.Contains(normalized, "share") ||
+		strings.Contains(normalized, "预览") ||
+		strings.Contains(normalized, "preview")
+}
+
+func buildVerifiedLinksAnswer(question string, links []string) string {
+	if len(links) == 0 {
+		return "未生成可用链接。"
+	}
+	title := "已通过系统工具生成可用链接："
+	if isLinkIntentQuestion(question) {
+		title = "已通过系统工具重新生成可用下载链接："
+	}
+	var builder strings.Builder
+	builder.WriteString(title)
+	for _, link := range links {
+		builder.WriteString("\n- ")
+		builder.WriteString(link)
+	}
+	return builder.String()
 }
 
 func normalizeAIRole(role string) string {

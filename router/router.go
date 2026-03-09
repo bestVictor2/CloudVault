@@ -70,6 +70,9 @@ func InitRouter() *gin.Engine {
 		ai := auth.Group("/ai")
 		{
 			ai.POST("/ask", handler.AskAI)
+			ai.POST("/rag", handler.AskAIRAG)
+			ai.GET("/history", handler.GetAIHistory)
+			ai.DELETE("/history", handler.ClearAIHistory)
 		}
 		api.GET("/share/download/:shareID", handler.ShareDownload)
 	}

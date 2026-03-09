@@ -323,7 +323,57 @@ async function apiFetchBlob(path, options = {}) {
   return { blob, filename };
 }
 
+function initTopbarControls() {
+  const topbar = document.querySelector(".topbar");
+  const nav = topbar?.querySelector("nav");
+  if (!topbar || !nav) return;
+
+  let toggle = topbar.querySelector(".nav-toggle");
+  if (!toggle) {
+    toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "nav-toggle";
+    toggle.textContent = "Menu";
+    toggle.setAttribute("aria-label", "Toggle navigation");
+    toggle.setAttribute("aria-expanded", "false");
+    const brand = topbar.querySelector(".brand");
+    if (brand && brand.nextSibling) {
+      topbar.insertBefore(toggle, brand.nextSibling);
+    } else {
+      topbar.appendChild(toggle);
+    }
+  }
+
+  const setMenuOpen = (open) => {
+    topbar.classList.toggle("nav-open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
+  toggle.addEventListener("click", () => {
+    setMenuOpen(!topbar.classList.contains("nav-open"));
+  });
+
+  nav.querySelectorAll("a").forEach((link) => {
+    link.addEventListener("click", () => setMenuOpen(false));
+  });
+
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 960) {
+      setMenuOpen(false);
+    }
+  });
+}
+
+function applyPanelAnimationDelays() {
+  const cards = document.querySelectorAll(".hero-card, .panel");
+  cards.forEach((card, index) => {
+    const delay = Math.min(index, 12) * 45;
+    card.style.setProperty("--delay", `${delay}ms`);
+  });
+}
+
 function initBaseControls() {
+  initTopbarControls();
   const input = $("apiBase");
   if (input) {
     input.value = state.apiBase;
@@ -2178,12 +2228,45 @@ function appendAIMessage(role, content) {
   log.scrollTop = log.scrollHeight;
 }
 
-function resetAIChat() {
+async function loadAIHistory() {
+  const status = $("aiStatus");
+  const log = $("aiChatLog");
+  if (log) log.innerHTML = "";
+  state.aiHistory = [];
+  if (!state.token) {
+    setStatus(status, "请先登录。", true);
+    return;
+  }
+  try {
+    setStatus(status, "正在加载历史记录...");
+    const data = await apiFetch("/ai/history?limit=40", { method: "GET" });
+    const items = Array.isArray(data?.items) ? data.items : [];
+    state.aiHistory = items.map((item) => ({
+      role: item.role || "",
+      content: item.content || "",
+    }));
+    state.aiHistory.forEach((item) => appendAIMessage(item.role, item.content));
+    setStatus(status, `已加载 ${state.aiHistory.length} 条历史消息。`);
+  } catch (err) {
+    setStatus(status, err.message, true);
+  }
+}
+
+async function resetAIChat() {
   state.aiHistory = [];
   const log = $("aiChatLog");
   if (log) log.innerHTML = "";
   const status = $("aiStatus");
-  if (status) setStatus(status, "对话已清空。");
+  if (!state.token) {
+    if (status) setStatus(status, "对话已清空。");
+    return;
+  }
+  try {
+    await apiFetch("/ai/history", { method: "DELETE" });
+    if (status) setStatus(status, "对话已清空。");
+  } catch (err) {
+    if (status) setStatus(status, err.message, true);
+  }
 }
 
 async function handleAISend() {
@@ -2199,7 +2282,6 @@ async function handleAISend() {
     setStatus(status, "请先登录。", true);
     return;
   }
-  const history = state.aiHistory.slice(-10);
   appendAIMessage("user", question);
   state.aiHistory.push({ role: "user", content: question });
   state.aiHistory = state.aiHistory.slice(-20);
@@ -2208,7 +2290,7 @@ async function handleAISend() {
   try {
     const data = await apiFetch("/ai/ask", {
       method: "POST",
-      body: JSON.stringify({ question, history }),
+      body: JSON.stringify({ question }),
     });
     const answer = data?.answer || data?.data?.answer || "";
     if (!answer) {
@@ -2236,6 +2318,7 @@ function initAIPage() {
       }
     });
   }
+  loadAIHistory();
 }
 function initHomePage() {
   const pingBtn = $("pingBtn");
@@ -2260,6 +2343,7 @@ function initPage() {
   // Ensure old localStorage token never auto-restores login.
   localStorage.removeItem(TOKEN_STORAGE_KEY);
   initBaseControls();
+  applyPanelAnimationDelays();
   const page = document.body.dataset.page;
   const map = {
     home: initHomePage,
