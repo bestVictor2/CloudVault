@@ -13,7 +13,7 @@ import (
 func GetUserActivitySummary(c *gin.Context) {
 	days := 7
 	if raw := strings.TrimSpace(c.Query("days")); raw != "" {
-		parsed, err := strconv.Atoi(raw)
+		parsed, err := strconv.Atoi(raw) // string -> int
 		if err != nil || parsed <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid days"})
 			return

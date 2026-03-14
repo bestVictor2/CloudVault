@@ -140,6 +140,56 @@ function formatSize(bytes) {
   return `${value.toFixed(precision)} ${units[index]}`;
 }
 
+function bufferToHex(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let hex = "";
+  for (let i = 0; i < bytes.length; i += 1) {
+    hex += bytes[i].toString(16).padStart(2, "0");
+  }
+  return hex;
+}
+
+function hexToBytes(hex) {
+  const normalized = (hex || "").trim().toLowerCase();
+  if (!normalized || normalized.length % 2 !== 0) return new Uint8Array(0);
+  const bytes = new Uint8Array(normalized.length / 2);
+  for (let i = 0; i < bytes.length; i += 1) {
+    const start = i * 2;
+    bytes[i] = Number.parseInt(normalized.slice(start, start + 2), 16);
+  }
+  return bytes;
+}
+
+async function readFileBuffer(file, progressCb) {
+  if (!file) {
+    throw new Error("Missing file.");
+  }
+  if (!window.crypto || !window.crypto.subtle) {
+    throw new Error("WebCrypto is not available in this browser.");
+  }
+  if (progressCb) progressCb(0);
+  const buffer = await file.arrayBuffer();
+  if (progressCb) progressCb(1);
+  return buffer;
+}
+
+async function computeSHA256FromBuffer(buffer) {
+  const hashBuffer = await window.crypto.subtle.digest("SHA-256", buffer);
+  return bufferToHex(hashBuffer);
+}
+
+async function computeNonceProof(nonceHex, buffer) {
+  const nonceBytes = hexToBytes(nonceHex);
+  if (!nonceBytes.length) {
+    throw new Error("Invalid nonce.");
+  }
+  const fileBytes = new Uint8Array(buffer);
+  const combined = new Uint8Array(nonceBytes.length + fileBytes.length);
+  combined.set(nonceBytes, 0);
+  combined.set(fileBytes, nonceBytes.length);
+  return computeSHA256FromBuffer(combined.buffer);
+}
+
 function saveLastSelection(file) {
   if (!file) return;
   const payload = {
@@ -1004,6 +1054,18 @@ async function resolveUploadTarget() {
     throw err;
   }
 }
+async function uploadInstantFileByForm(file, fileName, parentId) {
+  const form = new FormData();
+  form.append("file", file, fileName);
+  form.append("file_name", fileName);
+  form.append("parent_id", String(parentId || 0));
+  const data = await apiFetch("/file/upload/hash", {
+    method: "POST",
+    body: form,
+  });
+  return unwrap(data) || {};
+}
+
 async function handleInstantUpload() {
   const status = $("instantStatus");
   try {
@@ -1016,21 +1078,78 @@ async function handleInstantUpload() {
     const nameInput = $("instantName");
     const sizeInput = $("instantSize");
     const hashInput = $("instantHash");
-    if (nameInput) nameInput.value = file.name;
+    const fileName = (nameInput?.value || file.name).trim() || file.name;
+    if (nameInput) nameInput.value = fileName;
     if (sizeInput) sizeInput.value = file.size;
     if (hashInput) hashInput.value = "";
 
-    setStatus(status, "正在提交上传...");
     const parentId = await resolveUploadTarget();
-    const form = new FormData();
-    form.append("file", file, file.name);
-    form.append("file_name", file.name);
-    form.append("parent_id", String(parentId || 0));
-    const data = await apiFetch("/file/upload/hash", {
-      method: "POST",
-      body: form,
+
+    setStatus(status, "正在计算 Hash...");
+    const buffer = await readFileBuffer(file, (progress) => {
+      const percent = Math.round(progress * 100);
+      if (percent > 0 && percent < 100) {
+        setStatus(status, `正在读取文件... ${percent}%`);
+      }
     });
-    const result = unwrap(data) || {};
+    const hash = await computeSHA256FromBuffer(buffer);
+    if (hashInput) hashInput.value = hash;
+
+    setStatus(status, "正在检查是否支持秒传...");
+    const checkData = await apiFetch("/file/upload/hash", {
+      method: "POST",
+      body: JSON.stringify({
+        file_id: 0,
+        file_name: fileName,
+        size: file.size,
+        hash,
+        parent_id: parentId,
+      }),
+    });
+    const checkResult = unwrap(checkData) || {};
+    if (checkResult.instant) {
+      setStatus(status, "秒传命中，已生成文件。");
+      return;
+    }
+    if (checkResult.challenge && checkResult.challenge.nonce) {
+      const challengeId = checkResult.challenge.challenge_id || checkResult.challenge.id;
+      if (!challengeId) {
+        setStatus(status, "PoP 挑战缺失。", true);
+        return;
+      }
+      setStatus(status, "正在生成 PoP 校验...");
+      const proofHash = await computeNonceProof(checkResult.challenge.nonce, buffer);
+      setStatus(status, "正在提交 PoP 校验...");
+      const verifyData = await apiFetch("/file/upload/hash", {
+        method: "POST",
+        body: JSON.stringify({
+          file_id: 0,
+          file_name: fileName,
+          size: file.size,
+          hash,
+          parent_id: parentId,
+          challenge_id: challengeId,
+          proof_hash: proofHash,
+        }),
+      });
+      const verifyResult = unwrap(verifyData) || {};
+      if (verifyResult.instant) {
+        setStatus(status, "秒传命中，已生成文件。");
+        return;
+      }
+      if (!verifyResult.need_upload) {
+        const reason = verifyResult.reason ? `, reason: ${verifyResult.reason}` : "";
+        setStatus(status, `秒传校验失败${reason}`, true);
+        return;
+      }
+    } else if (!checkResult.need_upload) {
+      const reason = checkResult.reason ? `, reason: ${checkResult.reason}` : "";
+      setStatus(status, `秒传检查失败${reason}`, true);
+      return;
+    }
+
+    setStatus(status, "未命中，开始上传...");
+    const result = await uploadInstantFileByForm(file, fileName, parentId);
     if (hashInput && result.hash) {
       hashInput.value = result.hash;
     }

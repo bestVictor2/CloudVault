@@ -3,14 +3,16 @@ package dto
 import "mime/multipart"
 
 type UploadFileByHashRequest struct {
-	UserId   uint64                `json:"-"`
-	FileId   uint64                `json:"file_id"`
-	FileName string                `json:"file_name" binding:"required"`
-	Size     int64                 `json:"size" binding:"required"`
-	Hash     string                `json:"hash" binding:"required"`
-	ParentId uint64                `json:"parent_id"`
-	File     *multipart.FileHeader `json:"-"`
-	IsDir    bool                  `json:"is_dir"`
+	UserId      uint64                `json:"-"`
+	FileId      uint64                `json:"file_id"`
+	FileName    string                `json:"file_name" binding:"required"`
+	Size        int64                 `json:"size" binding:"required"`
+	Hash        string                `json:"hash" binding:"required"`
+	ParentId    uint64                `json:"parent_id"`
+	File        *multipart.FileHeader `json:"-"`
+	IsDir       bool                  `json:"is_dir"`
+	ChallengeID string                `json:"challenge_id"`
+	ProofHash   string                `json:"proof_hash"`
 }
 
 type MultipartInitRequest struct {

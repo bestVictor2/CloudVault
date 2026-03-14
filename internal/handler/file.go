@@ -36,7 +36,7 @@ func UploadFileByHash(c *gin.Context) {
 		}
 		var parentID *uint64
 		if rawParent := strings.TrimSpace(c.PostForm("parent_id")); rawParent != "" {
-			parsed, err := strconv.ParseUint(rawParent, 10, 64)
+			parsed, err := strconv.ParseUint(rawParent, 10, 64) // 转换 parentid
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid parent_id"})
 				return
@@ -106,15 +106,67 @@ func UploadFileByHash(c *gin.Context) {
 		return
 	}
 	req.UserId = c.MustGet("user_id").(uint64)
-	resp, err := service.FastUpload(
-		c.Request.Context(),
-		&req,
-	)
+
+	// PoP verification flow when challenge/proof is provided.
+	if strings.TrimSpace(req.ChallengeID) != "" || strings.TrimSpace(req.ProofHash) != "" {
+		ok, reason, _, err := service.VerifyPoPChallenge(c.Request.Context(), req.UserId, req.ChallengeID, req.ProofHash)
+		if err != nil {
+			utils.Fail(c, err)
+			return
+		}
+		if !ok {
+			utils.Success(c, &dto.FastUploadResponse{
+				Instant:    false,
+				NeedUpload: true,
+				Reason:     reason,
+				Hash:       strings.TrimSpace(req.Hash),
+			})
+			return
+		}
+		resp, err := service.FastUpload(
+			c.Request.Context(),
+			&req,
+		)
+		if err != nil {
+			utils.Fail(c, err)
+			return
+		}
+		utils.Success(c, resp)
+		return
+	}
+
+	// Precheck for PoP challenge.
+	obj, reason, err := service.CheckFileObjectAvailable(c.Request.Context(), req.Hash, req.Size)
 	if err != nil {
 		utils.Fail(c, err)
 		return
 	}
-	utils.Success(c, resp)
+	if obj == nil {
+		utils.Success(c, &dto.FastUploadResponse{
+			Instant:    false,
+			NeedUpload: true,
+			Reason:     reason,
+			Hash:       strings.TrimSpace(req.Hash),
+		})
+		return
+	}
+
+	fileSize := obj.Size
+	if fileSize <= 0 {
+		fileSize = req.Size
+	}
+	challenge, err := service.CreatePoPChallenge(c.Request.Context(), req.UserId, obj.Hash, fileSize)
+	if err != nil {
+		utils.Fail(c, err)
+		return
+	}
+	utils.Success(c, &dto.FastUploadResponse{
+		Instant:    false,
+		NeedUpload: false,
+		Reason:     "proof_required",
+		Hash:       strings.TrimSpace(req.Hash),
+		Challenge:  challenge,
+	})
 }
 
 // HttpOfflineDownload creates an offline download task.

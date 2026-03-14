@@ -76,3 +76,5 @@ func ClearAIHistory(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"msg": "success"})
 }
+
+// 传入 context 是为了假如关闭了 http 链接 那么直接调用 done 函数 避免 ai 的 api 接口一直浪费资源

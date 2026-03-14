@@ -300,11 +300,39 @@ func isFileObjectAvailable(ctx context.Context, obj *model.FileObject) (bool, er
 	return true, nil
 }
 
+// CheckFileObjectAvailable checks whether a hash exists and is usable without creating user files.
+// Returns nil object with a reason when upload is still required.
+func CheckFileObjectAvailable(ctx context.Context, hash string, size int64) (*model.FileObject, string, error) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return nil, "hash_missing", nil
+	}
+	obj, err := GetFileObjectByHash(hash)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, "hash_not_found", nil
+		}
+		return nil, "", err
+	}
+	if size > 0 && obj.Size > 0 && size != obj.Size {
+		return nil, "size_mismatch", nil
+	}
+	available, err := isFileObjectAvailable(ctx, obj)
+	if err != nil {
+		return nil, "", err
+	}
+	if !available {
+		return nil, "object_missing", nil
+	}
+	return obj, "", nil
+}
+
 // FastUpload handles hash-based instant upload.
 func FastUpload(
 	ctx context.Context,
 	req *dto.UploadFileByHashRequest,
 ) (*dto.FastUploadResponse, error) {
+	req.Hash = strings.TrimSpace(req.Hash)
 	obj, err := GetFileObjectByHash(req.Hash)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -312,6 +340,7 @@ func FastUpload(
 				Instant:    false,
 				NeedUpload: true,
 				Reason:     "hash_not_found",
+				Hash:       req.Hash,
 			}, nil
 		}
 		return nil, err
@@ -322,6 +351,7 @@ func FastUpload(
 			Instant:    false,
 			NeedUpload: true,
 			Reason:     "size_mismatch",
+			Hash:       req.Hash,
 		}, nil
 	}
 
@@ -334,6 +364,7 @@ func FastUpload(
 			Instant:    false,
 			NeedUpload: true,
 			Reason:     "object_missing",
+			Hash:       req.Hash,
 		}, nil
 	}
 
@@ -363,6 +394,7 @@ func FastUpload(
 	return &dto.FastUploadResponse{
 		Instant: true,
 		FileId:  userFile.ID,
+		Hash:    req.Hash,
 	}, nil
 }
 

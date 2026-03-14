@@ -10,16 +10,21 @@ import (
 	"github.com/redis/go-redis/v9"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
 var Redis *redis.Client
 
 type RedisLock struct {
-	rdb   *redis.Client
-	key   string
-	token string
-	ttl   time.Duration
+	rdb            *redis.Client
+	key            string
+	token          string
+	ttl            time.Duration
+	renewInterval  time.Duration
+	renewCancel    context.CancelFunc
+	renewDone      chan struct{}
+	renewStartOnce sync.Once
 }
 
 // InitRedis initializes Redis client.
@@ -49,9 +54,10 @@ func EnableKeyspaceNotifications(ctx context.Context) error {
 // NewRedisLock creates a Redis lock helper.
 func NewRedisLock(rdb *redis.Client, key string, ttl time.Duration) *RedisLock {
 	return &RedisLock{
-		rdb: rdb,
-		key: key,
-		ttl: ttl,
+		rdb:           rdb,
+		key:           key,
+		ttl:           ttl,
+		renewInterval: ttl / 3,
 	}
 }
 
@@ -66,6 +72,7 @@ func (l *RedisLock) Lock(ctx context.Context) error {
 		return errors.New("lock is busy")
 	}
 	l.token = token
+	l.startRenew()
 	return nil
 }
 
@@ -76,11 +83,19 @@ end
 return 0
 `)
 
+var renewScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+	return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+end
+return 0
+`)
+
 // Unlock releases a Redis-based lock.
 func (l *RedisLock) Unlock(ctx context.Context) error {
 	if l.token == "" {
 		return nil
 	}
+	l.stopRenew()
 	_, err := unlockScript.Run(
 		ctx,
 		l.rdb,
@@ -88,6 +103,56 @@ func (l *RedisLock) Unlock(ctx context.Context) error {
 		l.token,
 	).Result()
 	return err
+}
+
+func (l *RedisLock) startRenew() {
+	if l.ttl <= 0 || l.renewInterval <= 0 || l.token == "" {
+		return
+	}
+	l.renewStartOnce.Do(func() {
+		if l.renewInterval < 200*time.Millisecond {
+			l.renewInterval = 200 * time.Millisecond
+		}
+		renewCtx, cancel := context.WithCancel(context.Background())
+		l.renewCancel = cancel
+		l.renewDone = make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(l.renewInterval)
+			defer ticker.Stop()
+			defer close(l.renewDone)
+			for {
+				select {
+				case <-renewCtx.Done():
+					return
+				case <-ticker.C:
+					ok, err := renewScript.Run(
+						renewCtx,
+						l.rdb,
+						[]string{l.key},
+						l.token,
+						int64(l.ttl/time.Millisecond),
+					).Int()
+					if err != nil {
+						log.Printf("redis lock renew failed: %v", err)
+						continue
+					}
+					if ok == 0 {
+						return
+					}
+				}
+			}
+		}()
+	})
+}
+
+func (l *RedisLock) stopRenew() {
+	if l.renewCancel == nil {
+		return
+	}
+	l.renewCancel()
+	if l.renewDone != nil {
+		<-l.renewDone
+	}
 }
 
 // ListenRedisExpired listens for Redis expired events.
