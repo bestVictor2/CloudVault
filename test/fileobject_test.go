@@ -51,10 +51,9 @@ func createFileObjectTestUser(t *testing.T, prefix string) *model.User {
 
 // BuildObjectName
 func TestBuildObjectName(t *testing.T) {
-	username := "testuser"
 	hash := "test_hash_123"
-	expected := "files/testuser/test_hash_123"
-	result := service.BuildObjectName(username, hash)
+	expected := "files/sha256/te/st/test_hash_123"
+	result := service.BuildObjectName(hash)
 	if result != expected {
 		t.Fatalf("BuildObjectName failed: expect %s, got %s", expected, result)
 	}
@@ -64,10 +63,7 @@ func TestBuildObjectName(t *testing.T) {
 func TestCreateFilesObject(t *testing.T) {
 	cleanFileObjectTables(t)
 
-	user := createFileObjectTestUser(t, "test_create_file_obj")
-
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "test_hash_create",
 		BucketName: "test-bucket",
 		ObjectName: "test_object_create",
@@ -88,10 +84,7 @@ func TestCreateFilesObject(t *testing.T) {
 func TestGetFileByObject(t *testing.T) {
 	cleanFileObjectTables(t)
 
-	user := createFileObjectTestUser(t, "test_get_by_object")
-
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "test_hash_get",
 		BucketName: "test-bucket",
 		ObjectName: "test_object_get",
@@ -118,10 +111,7 @@ func TestGetFileByObject(t *testing.T) {
 func TestGetFileObjectByHash(t *testing.T) {
 	cleanFileObjectTables(t)
 
-	user := createFileObjectTestUser(t, "test_get_by_hash")
-
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "test_hash_by_hash",
 		BucketName: "test-bucket",
 		ObjectName: "test_object_by_hash",
@@ -148,10 +138,7 @@ func TestGetFileObjectByHash(t *testing.T) {
 func TestGetFileObjectById(t *testing.T) {
 	cleanFileObjectTables(t)
 
-	user := createFileObjectTestUser(t, "test_get_by_id")
-
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "test_hash_by_id",
 		BucketName: "test-bucket",
 		ObjectName: "test_object_by_id",
@@ -178,10 +165,7 @@ func TestGetFileObjectById(t *testing.T) {
 func TestIncreaseRefCount(t *testing.T) {
 	cleanFileObjectTables(t)
 
-	user := createFileObjectTestUser(t, "test_ref_count")
-
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "test_hash_ref_count",
 		BucketName: "test-bucket",
 		ObjectName: "test_object_ref_count",
@@ -217,7 +201,6 @@ func TestFastUploadInstant(t *testing.T) {
 
 	//
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "fast_upload_hash",
 		BucketName: config.AppConfig.BucketName,
 		ObjectName: "test_object_fast",
@@ -300,7 +283,6 @@ func TestFastUploadSizeMismatchFallback(t *testing.T) {
 
 	user := createFileObjectTestUser(t, "fast_upload_size_mismatch")
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "size_mismatch_hash",
 		BucketName: config.AppConfig.BucketName,
 		ObjectName: "files/size_mismatch/hash",
@@ -351,7 +333,6 @@ func TestFastUploadObjectMissingFallback(t *testing.T) {
 
 	user := createFileObjectTestUser(t, "fast_upload_missing_obj")
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "missing_object_hash",
 		BucketName: config.AppConfig.BucketName,
 		ObjectName: "files/stale/missing_object_hash",
@@ -410,12 +391,10 @@ func TestCreateUploadSession(t *testing.T) {
 		t.Fatalf("CreateUploadSession failed: %v", err)
 	}
 
-	//
-	var session model.UploadSession
-	if err := repo.Db.Where("file_hash = ?", req.Hash).First(&session).Error; err != nil {
+	session, err := service.GetUploadSessionByHash(user.ID, req.Hash)
+	if err != nil {
 		t.Fatalf("failed to find upload session: %v", err)
 	}
-
 	if session.FileHash != req.Hash {
 		t.Fatalf("expect hash %s, got %s", req.Hash, session.FileHash)
 	}
@@ -428,7 +407,6 @@ func TestCompleteFileRepairStaleObject(t *testing.T) {
 	user := createFileObjectTestUser(t, "repair_stale_obj")
 	emptyHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       emptyHash,
 		BucketName: config.AppConfig.BucketName,
 		ObjectName: "files/stale/" + emptyHash,
@@ -483,10 +461,7 @@ func TestCompleteFileRepairStaleObject(t *testing.T) {
 func TestFindObjectIdByName(t *testing.T) {
 	cleanFileObjectTables(t)
 
-	user := createFileObjectTestUser(t, "test_find_by_name")
-
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       "find_by_name_hash",
 		BucketName: "test-bucket",
 		ObjectName: "test_object_find_by_name",

@@ -21,6 +21,7 @@ var Db *gorm.DB
 func autoMigrateAll(db *gorm.DB) {
 	db.AutoMigrate(&model.User{})
 	db.AutoMigrate(&model.FileObject{})
+	migrateFileObjectSchema(db)
 	db.AutoMigrate(&model.UserFile{})
 	migrateUserFileIndexes(db)
 	db.AutoMigrate(&model.FileChunk{})
@@ -31,6 +32,79 @@ func autoMigrateAll(db *gorm.DB) {
 	db.AutoMigrate(&model.UserFavorite{})
 	db.AutoMigrate(&model.UserRecent{})
 	db.AutoMigrate(&model.ShareAccessLog{})
+}
+
+// migrateFileObjectSchema drops legacy user ownership from file_object.
+func migrateFileObjectSchema(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	migrator := db.Migrator()
+	const tableName = "file_object"
+	const columnName = "user_id"
+	if !migrator.HasColumn(&model.FileObject{}, columnName) {
+		return
+	}
+
+	type constraintRow struct {
+		Name string `gorm:"column:CONSTRAINT_NAME"`
+	}
+	var constraints []constraintRow
+	if err := db.Raw(
+		`SELECT CONSTRAINT_NAME
+FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = ?
+  AND COLUMN_NAME = ?
+  AND REFERENCED_TABLE_NAME IS NOT NULL`,
+		tableName,
+		columnName,
+	).Scan(&constraints).Error; err != nil {
+		log.Printf("list file_object foreign keys failed: %v", err)
+	}
+	for _, constraint := range constraints {
+		name := strings.TrimSpace(constraint.Name)
+		if name == "" {
+			continue
+		}
+		if err := db.Exec(
+			"ALTER TABLE " + quoteMySQLIdentifier(tableName) + " DROP FOREIGN KEY " + quoteMySQLIdentifier(name),
+		).Error; err != nil {
+			log.Printf("drop file_object foreign key %s failed: %v", name, err)
+		}
+	}
+
+	type indexRow struct {
+		Name string `gorm:"column:INDEX_NAME"`
+	}
+	var indexes []indexRow
+	if err := db.Raw(
+		`SELECT DISTINCT INDEX_NAME
+FROM INFORMATION_SCHEMA.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME = ?
+  AND COLUMN_NAME = ?
+  AND INDEX_NAME <> 'PRIMARY'`,
+		tableName,
+		columnName,
+	).Scan(&indexes).Error; err != nil {
+		log.Printf("list file_object indexes failed: %v", err)
+	}
+	for _, index := range indexes {
+		name := strings.TrimSpace(index.Name)
+		if name == "" {
+			continue
+		}
+		if err := db.Exec(
+			"ALTER TABLE " + quoteMySQLIdentifier(tableName) + " DROP INDEX " + quoteMySQLIdentifier(name),
+		).Error; err != nil {
+			log.Printf("drop file_object index %s failed: %v", name, err)
+		}
+	}
+
+	if err := migrator.DropColumn(&model.FileObject{}, columnName); err != nil {
+		log.Printf("drop file_object.%s failed: %v", columnName, err)
+	}
 }
 
 // migrateUserFileIndexes keeps user_file uniqueness aligned with active/deleted state.

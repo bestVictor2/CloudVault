@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -450,7 +451,7 @@ func buildAIToolDefinitions() []aiToolDefinition {
 			Type: "function",
 			Function: aiToolFunctionSpec{
 				Name:        "get_download_url",
-				Description: "为指定文件生成预签名下载链接",
+				Description: "为指定文件生成仅当前用户可用的下载链接",
 				Parameters: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -621,15 +622,19 @@ func aiToolGetPreviewURL(ctx context.Context, userID uint64, args map[string]any
 	if !CheckFileOwner(userID, fileID) {
 		return nil, errors.New("file not found")
 	}
-	url, err := GetPreviewURL(ctx, userID, fileID, aiAgentLinkTTL)
+	ticketTTL := config.AppConfig.DownloadTicketTTL
+	if ticketTTL <= 0 {
+		ticketTTL = aiAgentLinkTTL
+	}
+	token, err := CreatePreviewTicket(ctx, userID, fileID, ticketTTL)
 	if err != nil {
 		return nil, err
 	}
 	_ = RecordRecentAccess(userID, fileID, "preview")
 	return map[string]any{
 		"file_id":            fileID,
-		"preview_url":        url,
-		"expires_in_seconds": int(aiAgentLinkTTL.Seconds()),
+		"preview_url":        buildSecurePreviewURL(token),
+		"expires_in_seconds": int(ticketTTL.Seconds()),
 	}, nil
 }
 
@@ -645,11 +650,14 @@ func aiToolGetDownloadURL(ctx context.Context, userID uint64, args map[string]an
 	if err != nil || userFile.ObjectID == nil {
 		return nil, errors.New("file not found")
 	}
-	obj, err := GetFileObjectById(*userFile.ObjectID)
-	if err != nil {
+	if _, err := GetFileObjectById(*userFile.ObjectID); err != nil {
 		return nil, errors.New("file not found")
 	}
-	url, err := GetDownloadURL(ctx, obj.BucketName, obj.ObjectName, userFile.Name, aiAgentLinkTTL)
+	ticketTTL := config.AppConfig.DownloadTicketTTL
+	if ticketTTL <= 0 {
+		ticketTTL = aiAgentLinkTTL
+	}
+	token, err := CreateDownloadTicket(ctx, userID, fileID, ticketTTL)
 	if err != nil {
 		return nil, err
 	}
@@ -658,8 +666,8 @@ func aiToolGetDownloadURL(ctx context.Context, userID uint64, args map[string]an
 		"file_id":            fileID,
 		"name":               userFile.Name,
 		"size":               userFile.Size,
-		"download_url":       url,
-		"expires_in_seconds": int(aiAgentLinkTTL.Seconds()),
+		"download_url":       buildSecureDownloadURL(token),
+		"expires_in_seconds": int(ticketTTL.Seconds()),
 	}, nil
 }
 
@@ -698,6 +706,26 @@ func buildShareURL(shareID string) string {
 		return strings.TrimRight(base, "/") + "/api/share/download/" + strings.TrimSpace(shareID)
 	}
 	return "/api/share/download/" + strings.TrimSpace(shareID)
+}
+
+func buildSecureDownloadURL(token string) string {
+	base := strings.TrimSpace(config.AppConfig.AIHTTPReferer)
+	escaped := url.QueryEscape(token)
+	path := "/api/file/download/secure?token=" + escaped
+	if strings.HasPrefix(base, "http://") || strings.HasPrefix(base, "https://") {
+		return strings.TrimRight(base, "/") + path
+	}
+	return path
+}
+
+func buildSecurePreviewURL(token string) string {
+	base := strings.TrimSpace(config.AppConfig.AIHTTPReferer)
+	escaped := url.QueryEscape(token)
+	path := "/api/file/preview/secure?token=" + escaped
+	if strings.HasPrefix(base, "http://") || strings.HasPrefix(base, "https://") {
+		return strings.TrimRight(base, "/") + path
+	}
+	return path
 }
 
 func summarizeUserFiles(files []model.UserFile) []map[string]any {

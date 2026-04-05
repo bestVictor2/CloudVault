@@ -25,6 +25,12 @@ $env:AI_MAX_TOKENS='1024'
 $env:AI_HISTORY_LIMIT='20'
 $env:AI_X_TITLE='CloudVault'
 $env:AI_HTTP_REFERER='http://localhost'
+
+# optional: RAG embedding rerank
+$env:AI_EMBEDDING_MODEL='text-embedding-3-small'
+$env:AI_EMBEDDINGS_PATH='/v1/embeddings'
+$env:AI_RAG_RERANK_ENABLED='true'
+$env:AI_RAG_RECALL_TOP_K='20'
 ```
 
 Notes:

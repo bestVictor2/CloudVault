@@ -2407,9 +2407,9 @@ async function handleAISend() {
   input.value = "";
   setStatus(status, "AI 正在响应...");
   try {
-    const data = await apiFetch("/ai/ask", {
+    const data = await apiFetch("/ai/rag", {
       method: "POST",
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, top_k: 5 }),
     });
     const answer = data?.answer || data?.data?.answer || "";
     if (!answer) {

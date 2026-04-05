@@ -11,20 +11,29 @@ import (
 )
 
 const (
-	ExchangeTasks    = "download.exchange"
-	ExchangeRetry    = "download.retry.exchange"
-	ExchangeDLQ      = "download.dlq.exchange"
-	ExchangeActivity = "activity.exchange"
+	ExchangeTasks      = "download.exchange"
+	ExchangeRetry      = "download.retry.exchange"
+	ExchangeDLQ        = "download.dlq.exchange"
+	ExchangeMerge      = "merge.exchange"
+	ExchangeMergeRetry = "merge.retry.exchange"
+	ExchangeMergeDLQ   = "merge.dlq.exchange"
+	ExchangeActivity   = "activity.exchange"
 
-	QueueTasks    = "download.queue"
-	QueueRetry    = "download.retry.queue"
-	QueueDLQ      = "download.dlq.queue"
-	QueueActivity = "activity.queue"
+	QueueTasks      = "download.queue"
+	QueueRetry      = "download.retry.queue"
+	QueueDLQ        = "download.dlq.queue"
+	QueueMerge      = "merge.queue"
+	QueueMergeRetry = "merge.retry.queue"
+	QueueMergeDLQ   = "merge.dlq.queue"
+	QueueActivity   = "activity.queue"
 
-	RoutingTask     = "download"
-	RoutingRetry    = "download.retry"
-	RoutingDLQ      = "download.dlq"
-	RoutingActivity = "activity"
+	RoutingTask       = "download"
+	RoutingRetry      = "download.retry"
+	RoutingDLQ        = "download.dlq"
+	RoutingMerge      = "merge"
+	RoutingMergeRetry = "merge.retry"
+	RoutingMergeDLQ   = "merge.dlq"
+	RoutingActivity   = "activity"
 )
 
 type Client struct {
@@ -118,6 +127,39 @@ func (c *Client) DeclareTopology() error {
 		return err
 	}
 	if err := c.Channel.ExchangeDeclare(
+		ExchangeMerge,
+		"direct",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if err := c.Channel.ExchangeDeclare(
+		ExchangeMergeRetry,
+		"direct",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if err := c.Channel.ExchangeDeclare(
+		ExchangeMergeDLQ,
+		"direct",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if err := c.Channel.ExchangeDeclare(
 		ExchangeActivity,
 		"direct",
 		true,
@@ -153,6 +195,39 @@ func (c *Client) DeclareTopology() error {
 	}
 	if _, err := c.Channel.QueueDeclare(
 		QueueDLQ,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if _, err := c.Channel.QueueDeclare(
+		QueueMerge,
+		true,
+		false,
+		false,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if _, err := c.Channel.QueueDeclare(
+		QueueMergeRetry,
+		true,
+		false,
+		false,
+		false,
+		amqp.Table{
+			"x-dead-letter-exchange":    ExchangeMerge,
+			"x-dead-letter-routing-key": RoutingMerge,
+		},
+	); err != nil {
+		return err
+	}
+	if _, err := c.Channel.QueueDeclare(
+		QueueMergeDLQ,
 		true,
 		false,
 		false,
@@ -199,6 +274,33 @@ func (c *Client) DeclareTopology() error {
 		return err
 	}
 	if err := c.Channel.QueueBind(
+		QueueMerge,
+		RoutingMerge,
+		ExchangeMerge,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if err := c.Channel.QueueBind(
+		QueueMergeRetry,
+		RoutingMergeRetry,
+		ExchangeMergeRetry,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if err := c.Channel.QueueBind(
+		QueueMergeDLQ,
+		RoutingMergeDLQ,
+		ExchangeMergeDLQ,
+		false,
+		nil,
+	); err != nil {
+		return err
+	}
+	if err := c.Channel.QueueBind(
 		QueueActivity,
 		RoutingActivity,
 		ExchangeActivity,
@@ -224,6 +326,22 @@ func (c *Client) PublishRetry(ctx context.Context, body []byte, delay time.Durat
 
 func (c *Client) PublishDLQ(ctx context.Context, body []byte) error {
 	return c.publish(ctx, ExchangeDLQ, RoutingDLQ, body, "")
+}
+
+func (c *Client) PublishMergeTask(ctx context.Context, body []byte) error {
+	return c.publish(ctx, ExchangeMerge, RoutingMerge, body, "")
+}
+
+func (c *Client) PublishMergeRetry(ctx context.Context, body []byte, delay time.Duration) error {
+	if delay < 0 {
+		delay = 0
+	}
+	expiration := fmt.Sprintf("%d", delay.Milliseconds())
+	return c.publish(ctx, ExchangeMergeRetry, RoutingMergeRetry, body, expiration)
+}
+
+func (c *Client) PublishMergeDLQ(ctx context.Context, body []byte) error {
+	return c.publish(ctx, ExchangeMergeDLQ, RoutingMergeDLQ, body, "")
 }
 
 func (c *Client) PublishActivity(ctx context.Context, body []byte) error {

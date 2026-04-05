@@ -111,7 +111,6 @@ func MinioUploadFile(
 	}
 
 	fileObject := &model.FileObject{
-		UserID:     userId,
 		BucketName: bucketName,
 		ObjectName: objectName,
 		Size:       size,
@@ -242,8 +241,8 @@ func MinioDownloadFile(
 		return nil, nil, err
 	}
 	objectName := obj.ObjectName
-	if objectName == "" && username != "" {
-		objectName = BuildObjectName(username, hash)
+	if objectName == "" {
+		objectName = BuildObjectName(hash)
 	}
 	return MinioDownloadObject(ctx, objectName)
 }
@@ -410,15 +409,15 @@ func (r *downloadProgressReader) shouldReportProgress() bool {
 }
 
 // DownloadByHTTP downloads a URL into MinIO.
-func DownloadByHTTP(ctx context.Context, rawURL string, fileName string, userId uint64) (int64, error) {
-	return DownloadByHTTPWithProgress(ctx, rawURL, fileName, userId, nil)
+func DownloadByHTTP(ctx context.Context, rawURL string, objectToken string, userId uint64) (int64, error) {
+	return DownloadByHTTPWithProgress(ctx, rawURL, objectToken, userId, nil)
 }
 
 // DownloadByHTTPWithProgress downloads a URL into MinIO and reports stream progress.
 func DownloadByHTTPWithProgress(
 	ctx context.Context,
 	rawURL string,
-	fileName string,
+	objectToken string,
 	userId uint64,
 	onProgress func(downloaded, total int64),
 ) (int64, error) {
@@ -467,7 +466,7 @@ func DownloadByHTTPWithProgress(
 	if err := storage.Default.PutObject(
 		ctx,
 		config.AppConfig.BucketName,
-		BuildObjectName(userName, fileName),
+		BuildTempObjectName(userName, objectToken),
 		stream,
 		resp.ContentLength,
 		storage.PutOptions{
@@ -496,8 +495,8 @@ func UploadFromURL(
 	if err := ValidateDownloadSourceURL(rawURL); err != nil {
 		return nil, err
 	}
-	fileHash := utils.GetToken()
-	size, err := DownloadByHTTP(ctx, rawURL, fileHash, userID)
+	objectToken := utils.GetToken()
+	size, err := DownloadByHTTP(ctx, rawURL, objectToken, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -505,39 +504,57 @@ func UploadFromURL(
 	if err != nil {
 		return nil, err
 	}
-	objectName := BuildObjectName(userName, fileHash)
+	objectName := BuildTempObjectName(userName, objectToken)
 	removeObject := func() {
 		if storage.Default != nil {
 			_ = storage.Default.RemoveObject(ctx, config.AppConfig.BucketName, objectName)
 		}
 	}
-
-	fileObj := &model.FileObject{
-		UserID:     userID,
-		Hash:       fileHash,
-		BucketName: config.AppConfig.BucketName,
-		ObjectName: objectName,
-		Size:       size,
-		RefCount:   1,
-	}
-	userFile := &model.UserFile{
-		UserID:   userID,
-		ParentID: parentID,
-		Name:     fileName,
-		IsDir:    false,
-		Size:     size,
-	}
-	if err := repo.Db.Transaction(func(tx *gorm.DB) error {
-		if err := createFilesObjectTx(tx, fileObj); err != nil {
-			return err
-		}
-		userFile.ObjectID = &fileObj.ID
-		return createUserFileEntryTx(tx, userFile)
-	}); err != nil {
+	hash, hashedSize, err := ComputeObjectHash(ctx, config.AppConfig.BucketName, objectName)
+	if err != nil {
 		removeObject()
 		return nil, err
 	}
-	cacheFileObject(ctx, fileObj)
-	finalizeUserFileEntry(userFile)
-	return userFile, nil
+	if size > 0 && hashedSize != size {
+		removeObject()
+		return nil, fmt.Errorf("downloaded file size mismatch")
+	}
+	fileID, _, err := FinalizeUploadedObject(
+		ctx,
+		userID,
+		parentID,
+		fileName,
+		hashedSize,
+		config.AppConfig.BucketName,
+		objectName,
+		hash,
+	)
+	if err != nil {
+		removeObject()
+		return nil, err
+	}
+	return GetUserFileById(fileID)
+}
+
+// ComputeObjectHash reads the object from storage and returns its SHA-256 hash and size.
+func ComputeObjectHash(ctx context.Context, bucket, object string) (string, int64, error) {
+	if storage.Default == nil {
+		return "", 0, fmt.Errorf("storage not initialized")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reader, info, err := storage.Default.GetObject(ctx, bucket, object)
+	if err != nil {
+		return "", 0, err
+	}
+	defer reader.Close()
+	hash, readBytes, err := utils.ComputeSHA256Hex(reader)
+	if err != nil {
+		return "", 0, err
+	}
+	if info.Size > 0 && readBytes != info.Size {
+		return "", 0, fmt.Errorf("hash read size mismatch")
+	}
+	return hash, info.Size, nil
 }

@@ -24,6 +24,16 @@ func main() {
 		config.AppConfig.UploadSessionTTL,
 		config.AppConfig.UploadWatchdogBatch,
 	)
+	service.StartFileObjectCleanupWatchdog(
+		ctx,
+		config.AppConfig.FileObjectCleanupInterval,
+		config.AppConfig.FileObjectCleanupBatch,
+	)
+	service.StartFileObjectRefCountSyncWatchdog(
+		ctx,
+		config.AppConfig.FileObjectRefSyncInterval,
+		config.AppConfig.FileObjectRefSyncBatch,
+	)
 	if err := repo.EnableKeyspaceNotifications(ctx); err != nil {
 		log.Printf("enable redis keyspace notifications failed: %v", err)
 	} else {

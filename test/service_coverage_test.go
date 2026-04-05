@@ -209,7 +209,7 @@ func TestDownloadTaskWorker(t *testing.T) {
 		t.Fatalf("downloaded file not created: %v", err)
 	}
 
-	objectName := service.BuildObjectName(user.UserName, stored.ObjectName)
+	objectName := service.BuildObjectName(stored.ObjectName)
 	_ = storage.Minio.Client.RemoveObject(context.Background(), config.AppConfig.BucketName, objectName, minio.RemoveObjectOptions{})
 }
 
@@ -219,11 +219,10 @@ func TestSearchAndPreview(t *testing.T) {
 	user := createUserWithName(t, fmt.Sprintf("search_user_%d", time.Now().UnixNano()))
 
 	hash := "preview_hash"
-	objectName := service.BuildObjectName(user.UserName, hash)
+	objectName := service.BuildObjectName(hash)
 	putObject(t, objectName, []byte("preview-data"))
 
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       hash,
 		BucketName: config.AppConfig.BucketName,
 		ObjectName: objectName,
@@ -271,13 +270,13 @@ func TestSearchAndPreview(t *testing.T) {
 }
 
 // TestMinioUploadAndHTTPDownload covers MinioUploadFile and DownloadByHTTP.
-// HTTP 下载
+// HTTP 娑撳娴?
 func TestMinioUploadAndHTTPDownload(t *testing.T) {
 	cleanExtraTables(t)
 	user := createUserWithName(t, fmt.Sprintf("minio_user_%d", time.Now().UnixNano()))
 
 	hash := "upload_hash"
-	objectName := service.BuildObjectName(user.UserName, hash)
+	objectName := service.BuildObjectName(hash)
 	data := []byte("hello")
 	if err := service.MinioUploadFile(
 		context.Background(),
@@ -315,7 +314,7 @@ func TestMinioUploadAndHTTPDownload(t *testing.T) {
 	stat, err := storage.Minio.Client.StatObject(
 		context.Background(),
 		config.AppConfig.BucketName,
-		service.BuildObjectName(user.UserName, "http_hash"),
+		service.BuildTempObjectName(user.UserName, "http_hash"),
 		minio.StatObjectOptions{},
 	)
 	if err != nil || stat.Size <= 0 {
@@ -326,14 +325,12 @@ func TestMinioUploadAndHTTPDownload(t *testing.T) {
 // TestFileObjectRefCountAndRemove covers ref count decrement and removal.
 func TestFileObjectRefCountAndRemove(t *testing.T) {
 	cleanExtraTables(t)
-	user := createUserWithName(t, fmt.Sprintf("ref_user_%d", time.Now().UnixNano()))
 
 	hash := "ref_hash"
-	objectName := service.BuildObjectName(user.UserName, hash)
+	objectName := service.BuildObjectName(hash)
 	putObject(t, objectName, []byte("ref-data"))
 
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       hash,
 		BucketName: config.AppConfig.BucketName,
 		ObjectName: objectName,
@@ -349,8 +346,17 @@ func TestFileObjectRefCountAndRemove(t *testing.T) {
 		t.Fatalf("DecreaseRefCount failed: %v", err)
 	}
 
+	oldDelay := config.AppConfig.FileObjectDeleteDelay
+	config.AppConfig.FileObjectDeleteDelay = 0
+	defer func() {
+		config.AppConfig.FileObjectDeleteDelay = oldDelay
+	}()
+
 	if err := service.RemoveObject(fileObj.ID); err != nil {
 		t.Fatalf("RemoveObject failed: %v", err)
+	}
+	if _, err := service.CleanupPendingFileObjects(context.Background(), 8); err != nil {
+		t.Fatalf("CleanupPendingFileObjects failed: %v", err)
 	}
 
 	if err := repo.Db.Where("id = ?", fileObj.ID).First(&model.FileObject{}).Error; err == nil {
@@ -394,11 +400,10 @@ func TestUserFileOperations(t *testing.T) {
 	}
 
 	hash := "move_hash"
-	objectName := service.BuildObjectName(user.UserName, hash)
+	objectName := service.BuildObjectName(hash)
 	putObject(t, objectName, []byte("move-data"))
 
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       hash,
 		BucketName: config.AppConfig.BucketName,
 		ObjectName: objectName,

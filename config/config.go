@@ -47,9 +47,15 @@ type Config struct {
 	DownloadAllowPrivate      bool
 	DownloadAllowedHosts      []string
 	DownloadMaxBytes          int64
+	DownloadTicketTTL         time.Duration
 	UploadSessionTTL          time.Duration
 	UploadWatchdogInterval    time.Duration
 	UploadWatchdogBatch       int
+	FileObjectDeleteDelay     time.Duration
+	FileObjectCleanupInterval time.Duration
+	FileObjectCleanupBatch    int
+	FileObjectRefSyncInterval time.Duration
+	FileObjectRefSyncBatch    int
 	AIAPIBase                 string
 	AIAPIKey                  string
 	AIModel                   string
@@ -61,6 +67,10 @@ type Config struct {
 	AIHistoryLimit            int
 	AIHistoryTTL              time.Duration
 	AISystemPrompt            string
+	AIEmbeddingModel          string
+	AIEmbeddingsPath          string
+	AIRAGRerankEnabled        bool
+	AIRAGRecallTopK           int
 	ESEnabled                 bool
 	ESAddress                 string
 	ESIndex                   string
@@ -287,9 +297,15 @@ func InitConfig() {
 		DownloadAllowPrivate:      getEnvBool("DOWNLOAD_ALLOW_PRIVATE", false),
 		DownloadAllowedHosts:      getEnvList("DOWNLOAD_ALLOW_HOSTS", nil),
 		DownloadMaxBytes:          getEnvInt64("DOWNLOAD_MAX_BYTES", 0),
+		DownloadTicketTTL:         getEnvDuration("DOWNLOAD_TICKET_TTL", 2*time.Minute),
 		UploadSessionTTL:          getEnvDuration("UPLOAD_SESSION_TTL", 24*time.Hour),
 		UploadWatchdogInterval:    getEnvDuration("UPLOAD_WATCHDOG_INTERVAL", 10*time.Minute),
 		UploadWatchdogBatch:       getEnvInt("UPLOAD_WATCHDOG_BATCH", 100),
+		FileObjectDeleteDelay:     getEnvDuration("FILE_OBJECT_DELETE_DELAY", 30*time.Minute),
+		FileObjectCleanupInterval: getEnvDuration("FILE_OBJECT_CLEANUP_INTERVAL", 1*time.Minute),
+		FileObjectCleanupBatch:    getEnvInt("FILE_OBJECT_CLEANUP_BATCH", 100),
+		FileObjectRefSyncInterval: getEnvDuration("FILE_OBJECT_REF_SYNC_INTERVAL", 15*time.Second),
+		FileObjectRefSyncBatch:    getEnvInt("FILE_OBJECT_REF_SYNC_BATCH", 200),
 		AIAPIBase:                 strings.TrimRight(getEnv("AI_API_BASE", ""), "/"),
 		AIAPIKey:                  getEnv("AI_API_KEY", ""),
 		AIModel:                   getEnv("AI_MODEL", ""),
@@ -301,6 +317,10 @@ func InitConfig() {
 		AIHistoryLimit:            getEnvInt("AI_HISTORY_LIMIT", 20),
 		AIHistoryTTL:              getEnvDuration("AI_HISTORY_TTL", 72*time.Hour),
 		AISystemPrompt:            getEnv("AI_SYSTEM_PROMPT", "You are a concise CloudVault assistant. Answer in Chinese for Chinese questions."),
+		AIEmbeddingModel:          strings.TrimSpace(getEnv("AI_EMBEDDING_MODEL", "")),
+		AIEmbeddingsPath:          strings.TrimSpace(getEnv("AI_EMBEDDINGS_PATH", "")),
+		AIRAGRerankEnabled:        getEnvBool("AI_RAG_RERANK_ENABLED", true),
+		AIRAGRecallTopK:           getEnvInt("AI_RAG_RECALL_TOP_K", 20),
 		ESEnabled:                 getEnvBool("ES_ENABLED", false),
 		ESAddress:                 strings.TrimRight(getEnv("ES_ADDRESS", ""), "/"),
 		ESIndex:                   strings.TrimSpace(getEnv("ES_INDEX", "cloudvault_user_files")),

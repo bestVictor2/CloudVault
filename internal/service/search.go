@@ -6,6 +6,7 @@ import (
 	"CloudVault/model"
 	"fmt"
 	"log"
+	"strings"
 )
 
 // SearchFiles searches files by keyword.
@@ -87,4 +88,17 @@ func searchFilesByDB(userID uint64, req *dto.FileSearchRequest) ([]model.UserFil
 		return nil, 0, err
 	}
 	return files, total, nil
+}
+
+var allowedOrderBy = map[string]string{
+	"created_at": "created_at",
+	"updated_at": "updated_at",
+	"name":       "name",
+	"size":       "size",
+	"id":         "id",
+}
+
+func sanitizeOrderBy(orderBy string) string {
+	key := strings.ToLower(strings.TrimSpace(orderBy))
+	return allowedOrderBy[key]
 }

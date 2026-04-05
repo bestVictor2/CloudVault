@@ -74,6 +74,8 @@ func InitRouter() *gin.Engine {
 			ai.GET("/history", handler.GetAIHistory)
 			ai.DELETE("/history", handler.ClearAIHistory)
 		}
+		api.GET("/file/download/secure", handler.SecureDownload)
+		api.GET("/file/preview/secure", handler.SecurePreview)
 		api.GET("/share/download/:shareID", handler.ShareDownload)
 	}
 	return r

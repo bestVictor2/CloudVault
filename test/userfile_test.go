@@ -8,12 +8,12 @@ import (
 	"testing"
 )
 
-// 清理测试数据
+// 娓呯悊娴嬭瘯鏁版嵁
 func cleanUserFileTables(t *testing.T) {
-	// 临时禁用外键检
+	// 涓存椂绂佺敤澶栭敭妫€
 	repo.Db.Exec("SET FOREIGN_KEY_CHECKS = 0")
 
-	// 按照外键依赖关系的顺序清理表数据
+	// 鎸夌収澶栭敭渚濊禆鍏崇郴鐨勯『搴忔竻鐞嗚〃鏁版嵁
 	tables := []string{"file_share", "file_chunk", "upload_session", "user_file", "file_object", "user_db"}
 	for _, table := range tables {
 		if err := repo.Db.Exec("DELETE FROM " + table).Error; err != nil {
@@ -21,11 +21,11 @@ func cleanUserFileTables(t *testing.T) {
 		}
 	}
 
-	// 重新启用外键检
+	// 閲嶆柊鍚敤澶栭敭妫€
 	repo.Db.Exec("SET FOREIGN_KEY_CHECKS = 1")
 }
 
-// 创建测试用户
+// 鍒涘缓娴嬭瘯鐢ㄦ埛
 func createTestUser(t *testing.T) *model.User {
 	user := &model.User{
 		UserName: "test_user_file",
@@ -39,10 +39,9 @@ func createTestUser(t *testing.T) *model.User {
 	return user
 }
 
-// 创建测试文件对象
+// 鍒涘缓娴嬭瘯鏂囦欢瀵硅薄
 func createTestFileObject(t *testing.T, userID uint64) *model.FileObject {
 	fileObj := &model.FileObject{
-		UserID:     userID,
 		Hash:       "test_hash_123",
 		BucketName: "test-bucket",
 		ObjectName: "test_object_name",
@@ -55,7 +54,7 @@ func createTestFileObject(t *testing.T, userID uint64) *model.FileObject {
 	return fileObj
 }
 
-// 测试CreateUserFileEntry - 创建文件
+// 娴嬭瘯CreateUserFileEntry - 鍒涘缓鏂囦欢
 func TestCreateUserFileEntry(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
@@ -79,7 +78,7 @@ func TestCreateUserFileEntry(t *testing.T) {
 	}
 }
 
-// 测试CreateUserFileEntry - 创建文件
+// 娴嬭瘯CreateUserFileEntry - 鍒涘缓鏂囦欢
 func TestCreateUserDirEntry(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
@@ -100,12 +99,12 @@ func TestCreateUserDirEntry(t *testing.T) {
 	}
 }
 
-// 测试CreateUserFileEntry - 创建子文件夹
+// 娴嬭瘯CreateUserFileEntry - 鍒涘缓瀛愭枃浠跺す
 func TestCreateUserSubDirEntry(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
 
-	// 创建父文件夹
+	// 鍒涘缓鐖舵枃浠跺す
 	parentDir := &model.UserFile{
 		UserID:   user.ID,
 		ParentID: nil,
@@ -116,7 +115,7 @@ func TestCreateUserSubDirEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 创建子文件夹
+	// 鍒涘缓瀛愭枃浠跺す
 	subDir := &model.UserFile{
 		UserID:   user.ID,
 		ParentID: &parentDir.ID,
@@ -133,7 +132,7 @@ func TestCreateUserSubDirEntry(t *testing.T) {
 	}
 }
 
-// 测试CreateUserFileEntry - 创建文件时没有ObjectID应该失败
+// 娴嬭瘯CreateUserFileEntry - 鍒涘缓鏂囦欢鏃舵病鏈塐bjectID搴旇澶辫触
 func TestCreateUserFileWithoutObjectID(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
@@ -152,7 +151,7 @@ func TestCreateUserFileWithoutObjectID(t *testing.T) {
 	}
 }
 
-// 测试MoveToRecycle
+// 娴嬭瘯MoveToRecycle
 func TestMoveToRecycle(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
@@ -171,12 +170,12 @@ func TestMoveToRecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 移入回收
+	// 绉诲叆鍥炴敹
 	if err := service.MoveToRecycle(user.ID, userFile.ID); err != nil {
 		t.Fatalf("MoveToRecycle failed: %v", err)
 	}
 
-	// 验证文件已被标记为删
+	// 楠岃瘉鏂囦欢宸茶鏍囪涓哄垹
 	file, err := service.GetDeletedFile(uint(user.ID), uint(userFile.ID))
 	if err != nil {
 		t.Fatalf("GetDeletedFile failed: %v", err)
@@ -187,13 +186,13 @@ func TestMoveToRecycle(t *testing.T) {
 	}
 }
 
-// 测试ListRecycleFiles
+// 娴嬭瘯ListRecycleFiles
 func TestListRecycleFiles(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
 	fileObj := createTestFileObject(t, user.ID)
 
-	// 创建多个文件并移入回收站
+	// 鍒涘缓澶氫釜鏂囦欢骞剁Щ鍏ュ洖鏀剁珯
 	for i := 0; i < 3; i++ {
 		userFile := &model.UserFile{
 			UserID:   user.ID,
@@ -211,7 +210,7 @@ func TestListRecycleFiles(t *testing.T) {
 		}
 	}
 
-	// 获取回收站文件列
+	// 鑾峰彇鍥炴敹绔欐枃浠跺垪
 	files, err := service.ListRecycleFiles(uint(user.ID))
 	if err != nil {
 		t.Fatalf("ListRecycleFiles failed: %v", err)
@@ -222,7 +221,7 @@ func TestListRecycleFiles(t *testing.T) {
 	}
 }
 
-// 测试RestoreFile
+// 娴嬭瘯RestoreFile
 func TestRestoreFile(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
@@ -241,24 +240,24 @@ func TestRestoreFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 移入回收
+	// 绉诲叆鍥炴敹
 	if err := service.MoveToRecycle(user.ID, userFile.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	// 恢复文件
+	// 鎭㈠鏂囦欢
 	if err := service.RestoreFile(uint(user.ID), uint(userFile.ID)); err != nil {
 		t.Fatalf("RestoreFile failed: %v", err)
 	}
 
-	// 验证文件已恢
+	// 楠岃瘉鏂囦欢宸叉仮
 	_, err := service.GetDeletedFile(uint(user.ID), uint(userFile.ID))
 	if err == nil {
 		t.Fatal("GetDeletedFile should return error after restore")
 	}
 }
 
-// 测试CheckFileOwner
+// 娴嬭瘯CheckFileOwner
 func TestCheckFileOwner(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
@@ -277,18 +276,18 @@ func TestCheckFileOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 验证文件所有
+	// 楠岃瘉鏂囦欢鎵€鏈?
 	if !service.CheckFileOwner(user.ID, userFile.ID) {
 		t.Fatal("CheckFileOwner should return true for owner")
 	}
 
-	// 验证非文件所有
+	// 楠岃瘉闈炴枃浠舵墍鏈?
 	if service.CheckFileOwner(user.ID+1, userFile.ID) {
 		t.Fatal("CheckFileOwner should return false for non-owner")
 	}
 }
 
-// 测试GetDeletedFile
+// 娴嬭瘯GetDeletedFile
 func TestGetDeletedFile(t *testing.T) {
 	cleanUserFileTables(t)
 	user := createTestUser(t)
@@ -307,12 +306,12 @@ func TestGetDeletedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 移入回收
+	// 绉诲叆鍥炴敹
 	if err := service.MoveToRecycle(user.ID, userFile.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	// 获取已删除文
+	// 鑾峰彇宸插垹闄ゆ枃
 	file, err := service.GetDeletedFile(uint(user.ID), uint(userFile.ID))
 	if err != nil {
 		t.Fatalf("GetDeletedFile failed: %v", err)

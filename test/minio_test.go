@@ -6,6 +6,7 @@ import (
 	"CloudVault/internal/service"
 	"CloudVault/internal/storage"
 	"CloudVault/model"
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -13,25 +14,20 @@ import (
 	"time"
 )
 
-// 清理测试数据
 func cleanMinioTables(t *testing.T) {
-	// 临时禁用外键检
+	t.Helper()
 	repo.Db.Exec("SET FOREIGN_KEY_CHECKS = 0")
-
-	// 按照外键依赖关系的顺序清理表数据
 	tables := []string{"file_share", "file_chunk", "upload_session", "file_object", "user_file", "user_db"}
 	for _, table := range tables {
 		if err := repo.Db.Exec("DELETE FROM " + table).Error; err != nil {
 			t.Fatalf("clean %s failed: %v", table, err)
 		}
 	}
-
-	// 重新启用外键检
 	repo.Db.Exec("SET FOREIGN_KEY_CHECKS = 1")
 }
 
-// 创建测试用户
 func createMinioTestUser(t *testing.T) *model.User {
+	t.Helper()
 	suffix := time.Now().UnixNano()
 	user := &model.User{
 		UserName: fmt.Sprintf("minio_test_user_%d", suffix),
@@ -45,7 +41,6 @@ func createMinioTestUser(t *testing.T) *model.User {
 	return user
 }
 
-// 测试GetContentBook
 func TestGetContentBook(t *testing.T) {
 	testCases := []struct {
 		filename string
@@ -74,26 +69,22 @@ func TestGetContentBook(t *testing.T) {
 	}
 }
 
-// 测试BuildObjectName
 func TestBuildObjectNameForMinio(t *testing.T) {
-	username := "miniouser"
 	hash := "minio_hash_123"
-	expected := "files/miniouser/minio_hash_123"
-	result := service.BuildObjectName(username, hash)
+	expected := "files/sha256/mi/ni/minio_hash_123"
+	result := service.BuildObjectName(hash)
 	if result != expected {
 		t.Fatalf("BuildObjectName failed: expect %s, got %s", expected, result)
 	}
 }
 
-// 娴嬭瘯MinioUploadFile - 脏记录命中但对象缺失时，需自动重传对象
 func TestMinioUploadFileRepairMissingObject(t *testing.T) {
 	cleanMinioTables(t)
 	user := createMinioTestUser(t)
 
 	hash := "repair_minio_missing_hash"
-	objectName := service.BuildObjectName(user.UserName, hash)
+	objectName := service.BuildObjectName(hash)
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
 		Hash:       hash,
 		BucketName: config.AppConfig.BucketName,
 		ObjectName: objectName,
@@ -142,41 +133,45 @@ func TestMinioUploadFileRepairMissingObject(t *testing.T) {
 	_ = obj.Close()
 }
 
-// 测试MinioDownloadFile - 文件不存
 func TestMinioDownloadFileNotFound(t *testing.T) {
 	cleanMinioTables(t)
-	user := createMinioTestUser(t)
-
-	// 尝试下载不存在的文件
-	_, _, err := service.MinioDownloadFile(nil, user.UserName, "non_existent_file.txt")
-	if err == nil {
+	if _, _, err := service.MinioDownloadFile(nil, "", "non_existent_file.txt"); err == nil {
 		t.Fatal("MinioDownloadFile should return error for non-existent file")
 	}
 }
 
-// 测试MinioDownloadFile - 文件存在
 func TestMinioDownloadFileSuccess(t *testing.T) {
 	cleanMinioTables(t)
-	user := createMinioTestUser(t)
 
-	// 创建文件对象记录
+	hash := "download_test_hash"
+	objectName := service.BuildObjectName(hash)
 	fileObj := &model.FileObject{
-		UserID:     user.ID,
-		Hash:       "download_test_hash",
-		BucketName: "test-bucket",
-		ObjectName: service.BuildObjectName(user.UserName, "download_test_hash"),
-		Size:       1024,
+		Hash:       hash,
+		BucketName: config.AppConfig.BucketName,
+		ObjectName: objectName,
+		Size:       3,
 		RefCount:   1,
 	}
 	if err := service.CreateFilesObject(fileObj); err != nil {
 		t.Fatal(err)
 	}
+	if storage.Default == nil {
+		t.Fatal("storage not initialized")
+	}
+	if err := storage.Default.PutObject(
+		context.Background(),
+		config.AppConfig.BucketName,
+		objectName,
+		bytes.NewReader([]byte("abc")),
+		3,
+		storage.PutOptions{ContentType: "application/octet-stream"},
+	); err != nil {
+		t.Fatalf("put object failed: %v", err)
+	}
 
-	// 注意：这个测试需要 MinIO 中有实际的文件才能完全测试。
-	// 这里我们只测试文件对象记录存在的情况。
-	// 实际下载需要 MinIO 中有对应的文件。
-	_, _, err := service.MinioDownloadFile(nil, user.UserName, "download_test_hash")
-	// 由于 MinIO 中可能没有实际文件，这里可能会返回错误。
-	// 我们只验证函数调用不会 panic。
-	_ = err
+	reader, _, err := service.MinioDownloadFile(nil, "", hash)
+	if err != nil {
+		t.Fatalf("MinioDownloadFile failed: %v", err)
+	}
+	_ = reader.Close()
 }

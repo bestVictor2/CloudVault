@@ -6,12 +6,14 @@ import (
 	"CloudVault/internal/dto"
 	"CloudVault/internal/repo"
 	"CloudVault/internal/service"
+	"CloudVault/internal/task"
 	"CloudVault/model"
 	"CloudVault/utils"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	neturl "net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -103,7 +105,7 @@ func MinioDownloadFile(c *gin.Context) {
 	_ = activity.Emit(c.Request.Context(), userID, activity.ActionDownload, userFile.ID, written)
 }
 
-// MinioDownloadURL returns a presigned download URL for MinIO.
+// MinioDownloadURL returns a user-scoped secure download URL.
 func MinioDownloadURL(c *gin.Context) {
 	var req dto.MinioDownloadRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -154,18 +156,105 @@ func MinioDownloadURL(c *gin.Context) {
 	if name == "" {
 		name = path.Base(fileObj.ObjectName)
 	}
-	url, err := service.GetDownloadURL(c.Request.Context(), fileObj.BucketName, fileObj.ObjectName, name, 10*time.Minute)
+	ticketTTL := config.AppConfig.DownloadTicketTTL
+	if ticketTTL <= 0 {
+		ticketTTL = 2 * time.Minute
+	}
+	token, err := service.CreateDownloadTicket(c.Request.Context(), userID, userFile.ID, ticketTTL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	url := buildSecureDownloadURL(c, token)
 
 	c.JSON(http.StatusOK, gin.H{
-		"url":  url,
-		"name": name,
-		"size": fileObj.Size,
+		"url":                 url,
+		"name":                name,
+		"size":                fileObj.Size,
+		"expires_in_seconds":  int(ticketTTL.Seconds()),
+		"download_url_mode":   "secure",
+		"download_url_scoped": "user",
 	})
 	_ = service.RecordRecentAccess(userID, userFile.ID, "download_url")
+}
+
+// SecureDownload streams a file via a download ticket.
+func SecureDownload(c *gin.Context) {
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "download token required"})
+		return
+	}
+	ticket, err := service.VerifyDownloadTicket(c.Request.Context(), token)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	userID := ticket.UserID
+	if userID == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "download token invalid"})
+		return
+	}
+	if !service.CheckFileOwner(userID, ticket.FileID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "file not found"})
+		return
+	}
+	userFile, err := service.GetUserFileById(ticket.FileID)
+	if err != nil || userFile.ObjectID == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	fileObj, err := service.GetFileObjectById(*userFile.ObjectID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+
+	object, info, err := service.MinioDownloadObject(
+		c.Request.Context(),
+		fileObj.ObjectName,
+	)
+	if err != nil {
+		c.JSON(404, gin.H{"error": err.Error()})
+		return
+	}
+	defer object.Close()
+
+	fileName := userFile.Name
+	if fileName == "" {
+		fileName = path.Base(info.ObjectName)
+	}
+	fileName = utils.SanitizeHeaderFilename(fileName)
+	contentType := service.GetContentBook(fileName)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Header(
+		"Content-Disposition",
+		fmt.Sprintf("attachment; filename=\"%s\"", fileName),
+	)
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Length", fmt.Sprintf("%d", info.Size))
+
+	written, err := io.Copy(c.Writer, object)
+	if err != nil {
+		log.Println("download error:", err)
+		return
+	}
+	_ = service.RecordRecentAccess(userID, userFile.ID, "download")
+	_ = activity.Emit(c.Request.Context(), userID, activity.ActionDownload, userFile.ID, written)
+}
+
+func buildSecureDownloadURL(c *gin.Context, token string) string {
+	encoded := neturl.QueryEscape(token)
+	path := "/api/file/download/secure?token=" + encoded
+	scheme := "http"
+	if proto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); proto != "" {
+		scheme = proto
+	} else if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s%s", scheme, c.Request.Host, path)
 }
 
 // MultiPartFileInit initializes multipart upload.
@@ -271,6 +360,26 @@ func MultipartComplete(c *gin.Context) {
 	if req.FileName == "" {
 		req.FileName = session.FileName
 	}
+	req.UploadID = session.UploadID
+
+	integrity, err := service.ValidateUploadChunks(c.Request.Context(), session.UploadID, req.TotalChunks)
+	if err != nil {
+		c.JSON(500, gin.H{"msg": err.Error()})
+		return
+	}
+	if len(integrity.Missing) > 0 || len(integrity.Invalid) > 0 {
+		msg := "chunks not complete"
+		if len(integrity.Invalid) > 0 && len(integrity.Missing) == 0 {
+			msg = "chunks invalid"
+		}
+		c.JSON(409, gin.H{
+			"msg":            msg,
+			"upload_id":      session.UploadID,
+			"missing_chunks": integrity.Missing,
+			"invalid_chunks": integrity.Invalid,
+		})
+		return
+	}
 	lockKey := "lock:merge:" + strconv.FormatUint(userID, 10) + ":" + session.UploadID
 	lock := repo.NewRedisLock(
 		repo.Redis,
@@ -289,8 +398,45 @@ func MultipartComplete(c *gin.Context) {
 		userName,
 	)
 	if err != nil {
-		c.JSON(500, gin.H{"msg": err.Error()})
+		if err.Error() == "chunks not complete" || err.Error() == "chunks invalid" {
+			integrity, missErr := service.ValidateUploadChunks(c.Request.Context(), session.UploadID, req.TotalChunks)
+			if missErr != nil {
+				c.JSON(500, gin.H{"msg": missErr.Error()})
+				return
+			}
+			msg := "chunks not complete"
+			if len(integrity.Invalid) > 0 && len(integrity.Missing) == 0 {
+				msg = "chunks invalid"
+			}
+			c.JSON(409, gin.H{
+				"msg":            msg,
+				"upload_id":      session.UploadID,
+				"missing_chunks": integrity.Missing,
+				"invalid_chunks": integrity.Invalid,
+			})
+			return
+		}
+		mergeMsg := task.MergeMessage{
+			UploadID: session.UploadID,
+			UserID:   userID,
+			UserName: userName,
+			Request:  req,
+			Attempt:  0,
+		}
+		if qErr := task.EnqueueMergeTask(c.Request.Context(), mergeMsg); qErr != nil {
+			c.JSON(500, gin.H{"msg": "merge failed and queue failed: " + qErr.Error()})
+			return
+		}
+		c.JSON(202, gin.H{
+			"msg":       "merge queued",
+			"upload_id": session.UploadID,
+			"reason":    err.Error(),
+		})
 		return
 	}
-	c.JSON(200, gin.H{"msg": "upload completed", "hash": hash})
+	c.JSON(200, gin.H{
+		"msg":       "upload completed",
+		"upload_id": session.UploadID,
+		"hash":      hash,
+	})
 }

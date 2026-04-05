@@ -1,6 +1,7 @@
 package service
 
 import (
+	"CloudVault/config"
 	"CloudVault/internal/dto"
 	"CloudVault/internal/repo"
 	"CloudVault/internal/storage"
@@ -18,9 +19,23 @@ import (
 )
 
 const (
-	popChallengeTTL       = 2 * time.Minute
-	popChallengeKeyPrefix = "pop:challenge:"
+	downloadTicketKeyPrefix = "download:ticket:"
+	previewTicketKeyPrefix  = "preview:ticket:"
+	popChallengeTTL         = 2 * time.Minute
+	popChallengeKeyPrefix   = "pop:challenge:"
 )
+
+type downloadTicketState struct {
+	UserID    uint64    `json:"user_id"`
+	FileID    uint64    `json:"file_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type previewTicketState struct {
+	UserID    uint64    `json:"user_id"`
+	FileID    uint64    `json:"file_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
 
 type popChallengeState struct {
 	UserID uint64 `json:"user_id"`
@@ -29,8 +44,134 @@ type popChallengeState struct {
 	Nonce  string `json:"nonce"`
 }
 
+func buildDownloadTicketKey(token string) string {
+	return downloadTicketKeyPrefix + token
+}
+
+func buildPreviewTicketKey(token string) string {
+	return previewTicketKeyPrefix + token
+}
+
 func buildPoPChallengeKey(id string) string {
 	return popChallengeKeyPrefix + id
+}
+
+// CreateDownloadTicket issues a download ticket bound to a user and file.
+func CreateDownloadTicket(ctx context.Context, userID, fileID uint64, ttl time.Duration) (string, error) {
+	if repo.Redis == nil {
+		return "", errors.New("redis not initialized")
+	}
+	if userID == 0 || fileID == 0 {
+		return "", errors.New("invalid download ticket scope")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ttl <= 0 {
+		ttl = config.AppConfig.DownloadTicketTTL
+	}
+	if ttl <= 0 {
+		ttl = 2 * time.Minute
+	}
+	token := utils.GetToken()
+	state := downloadTicketState{
+		UserID:    userID,
+		FileID:    fileID,
+		ExpiresAt: time.Now().Add(ttl),
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return "", err
+	}
+	if err := repo.Redis.Set(ctx, buildDownloadTicketKey(token), payload, ttl).Err(); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// VerifyDownloadTicket validates a download ticket.
+func VerifyDownloadTicket(ctx context.Context, token string) (*downloadTicketState, error) {
+	if repo.Redis == nil {
+		return nil, errors.New("redis not initialized")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("download ticket missing")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	raw, err := repo.Redis.Get(ctx, buildDownloadTicketKey(token)).Bytes()
+	if err != nil {
+		return nil, errors.New("download ticket invalid or expired")
+	}
+	var state downloadTicketState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return nil, err
+	}
+	if !state.ExpiresAt.IsZero() && time.Now().After(state.ExpiresAt) {
+		return nil, errors.New("download ticket expired")
+	}
+	return &state, nil
+}
+
+// CreatePreviewTicket issues a preview ticket bound to a user and file.
+func CreatePreviewTicket(ctx context.Context, userID, fileID uint64, ttl time.Duration) (string, error) {
+	if repo.Redis == nil {
+		return "", errors.New("redis not initialized")
+	}
+	if userID == 0 || fileID == 0 {
+		return "", errors.New("invalid preview ticket scope")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ttl <= 0 {
+		ttl = config.AppConfig.DownloadTicketTTL
+	}
+	if ttl <= 0 {
+		ttl = 2 * time.Minute
+	}
+	token := utils.GetToken()
+	state := previewTicketState{
+		UserID:    userID,
+		FileID:    fileID,
+		ExpiresAt: time.Now().Add(ttl),
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return "", err
+	}
+	if err := repo.Redis.Set(ctx, buildPreviewTicketKey(token), payload, ttl).Err(); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// VerifyPreviewTicket validates a preview ticket.
+func VerifyPreviewTicket(ctx context.Context, token string) (*previewTicketState, error) {
+	if repo.Redis == nil {
+		return nil, errors.New("redis not initialized")
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return nil, errors.New("preview ticket missing")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	raw, err := repo.Redis.Get(ctx, buildPreviewTicketKey(token)).Bytes()
+	if err != nil {
+		return nil, errors.New("preview ticket invalid or expired")
+	}
+	var state previewTicketState
+	if err := json.Unmarshal(raw, &state); err != nil {
+		return nil, err
+	}
+	if !state.ExpiresAt.IsZero() && time.Now().After(state.ExpiresAt) {
+		return nil, errors.New("preview ticket expired")
+	}
+	return &state, nil
 }
 
 func CreatePoPChallenge(ctx context.Context, userID uint64, hash string, size int64) (*dto.PoPChallenge, error) {

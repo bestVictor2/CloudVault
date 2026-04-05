@@ -470,14 +470,87 @@ func PreviewFile(c *gin.Context) {
 		return
 	}
 	userID := c.MustGet("user_id").(uint64)
-	url, err := service.GetPreviewURL(c.Request.Context(), userID, fileID, 10*time.Minute)
+	ticketTTL := config.AppConfig.DownloadTicketTTL
+	if ticketTTL <= 0 {
+		ticketTTL = 2 * time.Minute
+	}
+	token, err := service.CreatePreviewTicket(c.Request.Context(), userID, fileID, ticketTTL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	_ = service.RecordRecentAccess(userID, fileID, "preview")
 
-	c.JSON(http.StatusOK, gin.H{"url": url})
+	c.JSON(http.StatusOK, gin.H{
+		"url":                buildSecurePreviewURL(c, token),
+		"expires_in_seconds": int(ticketTTL.Seconds()),
+		"preview_url_mode":   "secure",
+		"preview_url_scoped": "user",
+	})
+}
+
+// SecurePreview streams a file via a preview ticket.
+func SecurePreview(c *gin.Context) {
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "preview token required"})
+		return
+	}
+	ticket, err := service.VerifyPreviewTicket(c.Request.Context(), token)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	userID := ticket.UserID
+	if userID == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"error": "preview token invalid"})
+		return
+	}
+	if !service.CheckFileOwner(userID, ticket.FileID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "file not found"})
+		return
+	}
+	bucket, objectName, fileName, err := service.ResolvePreviewObject(c.Request.Context(), userID, ticket.FileID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if storage.Default == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "storage not initialized"})
+		return
+	}
+	object, info, err := storage.Default.GetObject(c.Request.Context(), bucket, objectName)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	defer object.Close()
+
+	fileName = utils.SanitizeHeaderFilename(fileName)
+	contentType := service.GetContentBook(fileName)
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	c.Header("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", fileName))
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Length", fmt.Sprintf("%d", info.Size))
+
+	if _, err := io.Copy(c.Writer, object); err != nil {
+		return
+	}
+	_ = service.RecordRecentAccess(userID, ticket.FileID, "preview")
+}
+
+func buildSecurePreviewURL(c *gin.Context, token string) string {
+	encoded := neturl.QueryEscape(token)
+	path := "/api/file/preview/secure?token=" + encoded
+	scheme := "http"
+	if proto := strings.TrimSpace(c.GetHeader("X-Forwarded-Proto")); proto != "" {
+		scheme = proto
+	} else if c.Request.TLS != nil {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s%s", scheme, c.Request.Host, path)
 }
 
 // ListDownloadTasks lists download tasks for a user.

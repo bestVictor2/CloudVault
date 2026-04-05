@@ -3,6 +3,7 @@ package main
 import (
 	"CloudVault/config"
 	"CloudVault/internal/repo"
+	"CloudVault/internal/service"
 	"CloudVault/internal/storage"
 	"CloudVault/internal/worker"
 	"context"
@@ -21,17 +22,31 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	log.Println("workers started: download + activity")
+	service.StartFileObjectCleanupWatchdog(
+		ctx,
+		config.AppConfig.FileObjectCleanupInterval,
+		config.AppConfig.FileObjectCleanupBatch,
+	)
+	service.StartFileObjectRefCountSyncWatchdog(
+		ctx,
+		config.AppConfig.FileObjectRefSyncInterval,
+		config.AppConfig.FileObjectRefSyncBatch,
+	)
 
-	errCh := make(chan error, 2)
+	log.Println("workers started: download + activity + merge")
+
+	errCh := make(chan error, 3)
 	go func() {
 		errCh <- worker.RunDownloadWorker(ctx)
 	}()
 	go func() {
 		errCh <- worker.RunActivityWorker(ctx)
 	}()
+	go func() {
+		errCh <- worker.RunMergeWorker(ctx)
+	}()
 
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		err := <-errCh
 		if err != nil {
 			log.Fatalf("worker stopped: %v", err)

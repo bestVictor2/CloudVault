@@ -15,7 +15,6 @@ import (
 
 	"golang.org/x/net/context"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 const fileObjectCacheTTL = 5 * time.Minute
@@ -36,10 +35,16 @@ func cacheFileObject(ctx context.Context, obj *model.FileObject) {
 	}
 }
 
-// BuildObjectName builds object path for a user's hash.
-func BuildObjectName(username, hash string) string {
-	return fmt.Sprintf("files/%s/%s", username, hash)
-} // minio 存储路径
+// BuildObjectName builds a content-addressed object path from hash.
+func BuildObjectName(hash string) string {
+	hash = strings.TrimSpace(strings.ToLower(hash))
+	hash = strings.ReplaceAll(hash, "/", "_")
+	hash = strings.ReplaceAll(hash, "\\", "_")
+	if len(hash) >= 4 {
+		return fmt.Sprintf("files/sha256/%s/%s/%s", hash[:2], hash[2:4], hash)
+	}
+	return fmt.Sprintf("files/sha256/%s", hash)
+} // minio 瀛樺偍璺緞
 
 // BuildTempObjectName builds a temporary object path for uploads.
 func BuildTempObjectName(username, token string) string {
@@ -127,7 +132,6 @@ func FinalizeUploadedObject(
 	}
 
 	obj := &model.FileObject{
-		UserID:     userID,
 		BucketName: bucketName,
 		Hash:       hash,
 		ObjectName: objectName,
@@ -159,7 +163,7 @@ func FinalizeUploadedObject(
 }
 
 // DeleteMinioFile removes an object from MinIO.
-// MinIO 删除对象
+// MinIO 鍒犻櫎瀵硅薄
 func DeleteMinioFile(fileObject *model.FileObject) error {
 	ctx := context.Background()
 	if storage.Default == nil {
@@ -174,21 +178,35 @@ func DeleteMinioFile(fileObject *model.FileObject) error {
 
 // CreateFilesObject inserts a file object record.
 func CreateFilesObject(dir *model.FileObject) error {
+	normalizeFileObjectForCreate(dir)
 	if err := repo.Db.Model(&model.FileObject{}).Create(dir).Error; err != nil {
 		return err
 	}
 	cacheFileObject(context.Background(), dir)
+	setRefCountCache(context.Background(), dir.ID, int64(dir.RefCount))
 	return nil
 }
 
 func createFilesObjectTx(tx *gorm.DB, obj *model.FileObject) error {
+	normalizeFileObjectForCreate(obj)
 	return tx.Model(&model.FileObject{}).Create(obj).Error
 }
 
+func normalizeFileObjectForCreate(obj *model.FileObject) {
+	if obj == nil {
+		return
+	}
+	if strings.TrimSpace(obj.DeleteStatus) == "" {
+		obj.DeleteStatus = model.FileObjectDeleteStatusActive
+	}
+	if obj.DeleteStatus == model.FileObjectDeleteStatusActive {
+		obj.DeleteAfter = nil
+	}
+}
+
 func increaseRefCountTx(tx *gorm.DB, id uint64) error {
-	return tx.Model(&model.FileObject{}).
-		Where("id = ?", id).
-		UpdateColumn("ref_count", gorm.Expr("ref_count + 1")).Error
+	_, err := adjustFileObjectRefCount(context.Background(), tx, id, 1)
+	return err
 }
 
 // GetFileByObject finds a file object by bucket and name.
@@ -198,8 +216,7 @@ func GetFileByObject(bucket, object string) (*model.FileObject, error) {
 		if err == nil {
 			return file, nil
 		}
-		if errors.Is(err, gorm.ErrRecordNotFound) { // 数据库中不存在但是缓存中存在 处理脏数据
-			_ = utils.InvalidateFileObjectPathCache(context.Background(), bucket, object)
+		if errors.Is(err, gorm.ErrRecordNotFound) { // 鏁版嵁搴撲腑涓嶅瓨鍦ㄤ絾鏄紦瀛樹腑瀛樺湪 澶勭悊鑴忔暟鎹?			_ = utils.InvalidateFileObjectPathCache(context.Background(), bucket, object)
 		} else {
 			return nil, err
 		}
@@ -254,9 +271,12 @@ func GetFileObjectById(id uint64) (*model.FileObject, error) {
 
 // IncreaseRefCount increments object reference count.
 func IncreaseRefCount(id uint64) error {
+	if _, err := adjustFileObjectRefCount(context.Background(), nil, id, 1); err != nil {
+		return err
+	}
 	if err := repo.Db.Model(&model.FileObject{}).
 		Where("id = ?", id).
-		UpdateColumn("ref_count", gorm.Expr("ref_count + 1")).Error; err != nil { // auto in db
+		UpdateColumn("ref_count", gorm.Expr("ref_count + 1")).Error; err != nil {
 		return err
 	}
 	_ = utils.InvalidateFileObjectCache(context.Background(), id)
@@ -264,21 +284,14 @@ func IncreaseRefCount(id uint64) error {
 }
 
 // DecreaseRefCount decrements object reference count.
+// DecreaseRefCount atomically decrements ref_count under row lock.
 func DecreaseRefCount(id uint64) (int, error) {
-	var fileObject model.FileObject
-	if err := repo.Db.Where("id = ?", id).First(&fileObject).Error; err != nil {
+	remain, err := adjustFileObjectRefCount(context.Background(), nil, id, -1)
+	if err != nil {
 		return 0, err
 	}
-	if fileObject.RefCount > 1 {
-		if err := repo.Db.Model(&model.FileObject{}).
-			Where("id = ?", id).
-			UpdateColumn("ref_count", gorm.Expr("ref_count - 1")).Error; err != nil {
-			return 0, err
-		}
-		_ = utils.InvalidateFileObjectCache(context.Background(), id)
-		return fileObject.RefCount - 1, nil
-	}
-	return 0, nil
+	_ = utils.InvalidateFileObjectCache(context.Background(), id)
+	return int(remain), nil
 }
 
 // isFileObjectAvailable checks whether the physical object exists in storage.
@@ -400,23 +413,36 @@ func FastUpload(
 
 // GetUploadSessionByHash loads an upload session by hash and user.
 func GetUploadSessionByHash(userID uint64, hash string) (*model.UploadSession, error) {
-	var session model.UploadSession
-	if err := repo.Db.
-		Where("file_hash = ? AND user_id = ?", hash, userID).
-		Order("id desc").
-		First(&session).Error; err != nil {
+	state, err := loadUploadSessionByHash(context.Background(), userID, hash)
+	if err != nil {
 		return nil, err
 	}
-	return &session, nil
+	return &model.UploadSession{
+		UploadID:    state.UploadID,
+		UserID:      state.UserID,
+		FileHash:    state.FileHash,
+		FileName:    state.FileName,
+		FileSize:    state.FileSize,
+		ChunkSize:   state.ChunkSize,
+		TotalChunks: state.TotalChunks,
+	}, nil
 }
 
 // GetUploadSessionByUploadID loads an upload session by upload ID.
 func GetUploadSessionByUploadID(uploadID string) (*model.UploadSession, error) {
-	var session model.UploadSession
-	if err := repo.Db.Where("upload_id = ?", uploadID).First(&session).Error; err != nil {
+	state, err := loadUploadSession(context.Background(), uploadID)
+	if err != nil {
 		return nil, err
 	}
-	return &session, nil
+	return &model.UploadSession{
+		UploadID:    state.UploadID,
+		UserID:      state.UserID,
+		FileHash:    state.FileHash,
+		FileName:    state.FileName,
+		FileSize:    state.FileSize,
+		ChunkSize:   state.ChunkSize,
+		TotalChunks: state.TotalChunks,
+	}, nil
 }
 
 // GetUploadSessionByUploadID loads an upload session by upload ID.
@@ -432,14 +458,29 @@ func GetUploadSessionByUploadID(uploadID string) (*model.UploadSession, error) {
 func CheckChunkNum(userID uint64, hash string, chunks *[]model.FileChunk) error {
 	session, err := GetUploadSessionByHash(userID, hash)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil
 		}
 		return err
 	}
-	return repo.Db.
-		Where("upload_id = ? AND status = 1", session.UploadID).
-		Find(chunks).Error
+	uploaded, err := listUploadedChunkIndices(context.Background(), session.UploadID, session.TotalChunks)
+	if err != nil {
+		return err
+	}
+	if chunks == nil {
+		return nil
+	}
+	out := make([]model.FileChunk, 0, len(uploaded))
+	for _, idx := range uploaded {
+		out = append(out, model.FileChunk{
+			UploadID:   session.UploadID,
+			ChunkIndex: idx,
+			ChunkPath:  buildChunkObjectPath(session.UploadID, idx),
+			Status:     1,
+		})
+	}
+	*chunks = out
+	return nil
 }
 
 // MultiPartFileInit initializes multipart upload.
@@ -450,13 +491,13 @@ func MultiPartFileInit(ctx context.Context, req dto.MultipartInitRequest) (*dto.
 		if err := CreateUploadSession(req); err != nil {
 			return nil, err
 		}
-		var session model.UploadSession
-		if err := repo.Db.Where("file_hash = ? AND user_id = ?", req.Hash, req.UserId).Order("id desc").First(&session).Error; err != nil {
+		uploadID, err := loadUploadID(req.UserId, req.Hash)
+		if err != nil {
 			return nil, err
 		}
 		return &dto.MultiPartFileResponse{
 			Instant:  false,
-			UploadID: session.UploadID,
+			UploadID: uploadID,
 			Uploaded: []int{},
 		}, nil
 	}
@@ -494,7 +535,7 @@ func MultiPartFileInit(ctx context.Context, req dto.MultipartInitRequest) (*dto.
 		return &dto.MultiPartFileResponse{
 			Instant: true,
 		}, nil
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) { // 如果不是没有找到记录 也即是产生了其他错误
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) { // 濡傛灉涓嶆槸娌℃湁鎵惧埌璁板綍 涔熷嵆鏄骇鐢熶簡鍏朵粬閿欒
 		return nil, err
 	}
 
@@ -512,10 +553,9 @@ uploadFlow: // hash noExist || no fileObject
 			return nil, err
 		}
 	}
-	var uploadID string
-	var session model.UploadSession
-	if err := repo.Db.Where("file_hash = ? AND user_id = ?", req.Hash, req.UserId).Order("id desc").First(&session).Error; err == nil {
-		uploadID = session.UploadID
+	uploadID, err := loadUploadID(req.UserId, req.Hash)
+	if err != nil {
+		return nil, err
 	}
 	return &dto.MultiPartFileResponse{
 		Instant:  false,
@@ -524,9 +564,21 @@ uploadFlow: // hash noExist || no fileObject
 	}, nil
 }
 
+func loadUploadID(userID uint64, hash string) (string, error) {
+	session, err := GetUploadSessionByHash(userID, hash)
+	if err != nil {
+		return "", err
+	}
+	return session.UploadID, nil
+}
+
 // CreateUploadSession creates an upload session record.
 func CreateUploadSession(req dto.MultipartInitRequest) error {
-	session := model.UploadSession{
+	req.Hash = strings.TrimSpace(req.Hash)
+	if req.Hash == "" {
+		return errors.New("file_hash required")
+	}
+	state := &uploadSessionState{
 		UploadID:    utils.GetToken(),
 		UserID:      req.UserId,
 		FileHash:    req.Hash,
@@ -534,13 +586,12 @@ func CreateUploadSession(req dto.MultipartInitRequest) error {
 		FileSize:    req.Size,
 		ChunkSize:   req.ChunkSize,
 		TotalChunks: req.TotalChunks,
-		Status:      0,
 	}
-	return repo.Db.Create(&session).Error
+	return saveUploadSession(context.Background(), state)
 }
 
 // UploadChunk stores a chunk in MinIO and the database.
-// MinIO 与数据库
+// MinIO 涓庢暟鎹簱
 func UploadChunk(
 	ctx context.Context,
 	req *dto.MultipartUploadChunkRequest,
@@ -550,7 +601,7 @@ func UploadChunk(
 		return err
 	}
 	defer src.Close()
-	objectPath := fmt.Sprintf("chunks/%s/%d", req.UploadID, req.ChunkIndex)
+	objectPath := buildChunkObjectPath(req.UploadID, req.ChunkIndex)
 	if storage.Default == nil {
 		return fmt.Errorf("storage not initialized")
 	}
@@ -564,49 +615,215 @@ func UploadChunk(
 	); err != nil {
 		return err
 	}
-	chunk := model.FileChunk{
-		UploadID:   req.UploadID,
-		ChunkIndex: req.ChunkIndex,
-		ChunkSize:  req.File.Size,
-		ChunkPath:  objectPath,
-		Status:     1,
+	state, err := loadUploadSession(ctx, req.UploadID)
+	if err != nil {
+		if storage.Default != nil {
+			_ = storage.Default.RemoveObject(ctx, req.BucketName, objectPath)
+		}
+		return err
 	}
-	// 并发上传时 同一个分片被多次提交 导致数据库的混乱 所以需要幂等
-	//
-	return repo.Db.
-		Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "upload_id"},
-				{Name: "chunk_index"},
-			},
-			DoUpdates: clause.AssignmentColumns([]string{
-				"chunk_size",
-				"chunk_path",
-				"status",
-				"updated_at",
-			}),
-		}).
-		Create(&chunk).Error
+	reader, info, err := storage.Default.GetObject(ctx, req.BucketName, objectPath)
+	if err != nil {
+		if storage.Default != nil {
+			_ = storage.Default.RemoveObject(ctx, req.BucketName, objectPath)
+		}
+		return err
+	}
+	_ = reader.Close()
+	if err := markChunkUploaded(ctx, state, req.ChunkIndex, chunkMeta{
+		Size: info.Size,
+		ETag: strings.TrimSpace(info.ETag),
+	}); err != nil {
+		if storage.Default != nil {
+			_ = storage.Default.RemoveObject(ctx, req.BucketName, objectPath)
+		}
+		return err
+	}
+	return nil
 }
 
 // FindAllChunkFile loads all chunks for completion.
 func FindAllChunkFile(userID uint64, chunks *[]model.FileChunk, req dto.MultipartCompleteRequest) error {
-	var session model.UploadSession
-	if err := repo.Db.Where("file_hash = ? AND user_id = ?", req.FileHash, userID).Order("id desc").First(&session).Error; err != nil {
+	session, err := GetUploadSessionByHash(userID, req.FileHash)
+	if err != nil {
 		return err
 	}
-	return repo.Db.
-		Where("upload_id = ? AND status = 1", session.UploadID).
-		Order("chunk_index asc").
-		Find(chunks).Error
+	return FindAllChunkFileByUploadID(session.UploadID, chunks)
 }
 
 // FindAllChunkFileByUploadID loads all chunks for completion by upload ID.
 func FindAllChunkFileByUploadID(uploadID string, chunks *[]model.FileChunk) error {
-	return repo.Db.
-		Where("upload_id = ? AND status = 1", uploadID).
-		Order("chunk_index asc").
-		Find(chunks).Error
+	state, err := loadUploadSession(context.Background(), uploadID)
+	if err != nil {
+		return err
+	}
+	total := state.TotalChunks
+	if total < 0 {
+		total = 0
+	}
+	count, err := countUploadedChunks(context.Background(), uploadID)
+	if err != nil {
+		return err
+	}
+	if int(count) != total {
+		return errors.New("chunks not complete")
+	}
+	if chunks == nil {
+		return nil
+	}
+	out := make([]model.FileChunk, 0, total)
+	for i := 0; i < total; i++ {
+		out = append(out, model.FileChunk{
+			UploadID:   uploadID,
+			ChunkIndex: i,
+			ChunkPath:  buildChunkObjectPath(uploadID, i),
+			Status:     1,
+		})
+	}
+	*chunks = out
+	return nil
+}
+
+// FindMissingChunkIndices returns missing chunk indices for an upload.
+func FindMissingChunkIndices(uploadID string, totalChunks int) ([]int, error) {
+	uploadID = strings.TrimSpace(uploadID)
+	if uploadID == "" {
+		return nil, errors.New("upload_id required")
+	}
+	if totalChunks <= 0 {
+		state, err := loadUploadSession(context.Background(), uploadID)
+		if err != nil {
+			return nil, err
+		}
+		totalChunks = state.TotalChunks
+	}
+	if totalChunks < 0 {
+		return nil, errors.New("invalid total_chunks")
+	}
+	uploaded, err := listUploadedChunkIndices(context.Background(), uploadID, totalChunks)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[int]struct{}, len(uploaded))
+	for _, idx := range uploaded {
+		seen[idx] = struct{}{}
+	}
+	missing := make([]int, 0)
+	for i := 0; i < totalChunks; i++ {
+		if _, ok := seen[i]; !ok {
+			missing = append(missing, i)
+		}
+	}
+	return missing, nil
+}
+
+type ChunkIntegrityResult struct {
+	Missing []int
+	Invalid []int
+}
+
+func dedupeSortedIndices(input []int) []int {
+	if len(input) == 0 {
+		return input
+	}
+	seen := make(map[int]struct{}, len(input))
+	out := make([]int, 0, len(input))
+	for _, idx := range input {
+		if idx < 0 {
+			continue
+		}
+		if _, ok := seen[idx]; ok {
+			continue
+		}
+		seen[idx] = struct{}{}
+		out = append(out, idx)
+	}
+	return out
+}
+
+// ValidateUploadChunks checks both bitmap completeness and chunk metadata/object integrity.
+func ValidateUploadChunks(ctx context.Context, uploadID string, totalChunks int) (*ChunkIntegrityResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if storage.Default == nil {
+		return nil, fmt.Errorf("storage not initialized")
+	}
+	uploadID = strings.TrimSpace(uploadID)
+	if uploadID == "" {
+		return nil, errors.New("upload_id required")
+	}
+	state, err := loadUploadSession(ctx, uploadID)
+	if err != nil {
+		return nil, err
+	}
+	if totalChunks <= 0 {
+		totalChunks = state.TotalChunks
+	}
+	if totalChunks < 0 {
+		return nil, errors.New("invalid total_chunks")
+	}
+
+	uploaded, err := listUploadedChunkIndices(ctx, uploadID, totalChunks)
+	if err != nil {
+		return nil, err
+	}
+	metaMap, err := loadChunkMetaMap(ctx, uploadID)
+	if err != nil {
+		return nil, err
+	}
+	uploadedSet := make(map[int]struct{}, len(uploaded))
+	for _, idx := range uploaded {
+		uploadedSet[idx] = struct{}{}
+	}
+
+	missing := make([]int, 0)
+	invalid := make([]int, 0)
+	for i := 0; i < totalChunks; i++ {
+		if _, ok := uploadedSet[i]; !ok {
+			missing = append(missing, i)
+			continue
+		}
+		meta, ok := metaMap[i]
+		if !ok {
+			invalid = append(invalid, i)
+			continue
+		}
+		chunkPath := buildChunkObjectPath(uploadID, i)
+		reader, info, err := storage.Default.GetObject(ctx, config.AppConfig.BucketName, chunkPath)
+		if err != nil {
+			invalid = append(invalid, i)
+			continue
+		}
+		_ = reader.Close()
+		if meta.Size >= 0 && info.Size != meta.Size {
+			invalid = append(invalid, i)
+			continue
+		}
+		if strings.TrimSpace(meta.ETag) != "" && strings.TrimSpace(info.ETag) != "" &&
+			!strings.EqualFold(strings.TrimSpace(meta.ETag), strings.TrimSpace(info.ETag)) {
+			invalid = append(invalid, i)
+			continue
+		}
+		if state.ChunkSize > 0 && totalChunks > 0 {
+			expectedSize := state.ChunkSize
+			if i == totalChunks-1 && state.FileSize > 0 {
+				last := state.FileSize - int64(totalChunks-1)*state.ChunkSize
+				if last > 0 {
+					expectedSize = last
+				}
+			}
+			if expectedSize > 0 && info.Size != expectedSize {
+				invalid = append(invalid, i)
+				continue
+			}
+		}
+	}
+
+	return &ChunkIntegrityResult{
+		Missing: dedupeSortedIndices(missing),
+		Invalid: dedupeSortedIndices(invalid),
+	}, nil
 }
 
 // CompleteFile composes chunks and creates file records.
@@ -667,16 +884,31 @@ func CompleteFileWithHash(
 	if len(chunks) != req.TotalChunks {
 		return "", errors.New("chunks not complete")
 	}
+	integrity, err := ValidateUploadChunks(ctx, session.UploadID, req.TotalChunks)
+	if err != nil {
+		return "", err
+	}
+	if len(integrity.Missing) > 0 {
+		return "", errors.New("chunks not complete")
+	}
+	if len(integrity.Invalid) > 0 {
+		return "", errors.New("chunks invalid")
+	}
 	if storage.Default == nil {
 		return "", fmt.Errorf("storage not initialized")
 	}
 
+	sessionState := &uploadSessionState{
+		UploadID:    session.UploadID,
+		UserID:      session.UserID,
+		FileHash:    session.FileHash,
+		TotalChunks: session.TotalChunks,
+	}
 	cleanupUploadData := func() {
 		for _, c := range chunks {
 			_ = storage.Default.RemoveObject(ctx, config.AppConfig.BucketName, c.ChunkPath)
 		}
-		_ = repo.Db.Where("upload_id = ?", session.UploadID).Delete(&model.FileChunk{}).Error
-		_ = repo.Db.Delete(&model.UploadSession{}, session.ID).Error
+		_ = clearUploadState(ctx, sessionState)
 	}
 	writeObject := func(objectName string) error {
 		if req.TotalChunks == 0 {
@@ -765,32 +997,42 @@ func FindObjectIdByName(name string) (uint64, error) {
 	return fileObject.ID, nil
 }
 
-// RemoveObject reduces ref count and deletes object if needed.
+// RemoveObject reduces ref count and schedules object deletion with delay.
 func RemoveObject(objectId uint64) error {
-	var fileObject model.FileObject
-	if err := repo.Db.Where("id = ?", objectId).First(&fileObject).Error; err != nil {
-		return err
-	}
-	remain, err := DecreaseRefCount(objectId)
+	next, err := adjustFileObjectRefCount(context.Background(), nil, objectId, -1)
 	if err != nil {
 		return err
 	}
-	if remain > 0 {
-		return nil
+
+	delay := config.AppConfig.FileObjectDeleteDelay
+	now := time.Now()
+	scheduledDelete := next <= 0
+	updateFields := map[string]interface{}{
+		"ref_count": next,
 	}
-	// 如果是最后一个 则清理数据
-	if err := DeleteMinioFile(&fileObject); err != nil {
-		return err
+	if scheduledDelete {
+		updateFields["delete_status"] = model.FileObjectDeleteStatusPending
+		if delay <= 0 {
+			updateFields["delete_after"] = now
+		} else {
+			updateFields["delete_after"] = now.Add(delay)
+		}
+	} else {
+		updateFields["delete_status"] = model.FileObjectDeleteStatusActive
+		updateFields["delete_after"] = nil
 	}
-	if err := repo.Db.Delete(&model.FileObject{}, objectId).Error; err != nil {
+	if err := repo.Db.Model(&model.FileObject{}).
+		Where("id = ?", objectId).
+		Updates(updateFields).Error; err != nil {
 		return err
 	}
 	_ = utils.InvalidateFileObjectCache(context.Background(), objectId)
-	_ = utils.InvalidateFileObjectHashCache(context.Background(), fileObject.Hash)
-	_ = utils.InvalidateFileObjectPathCache(context.Background(), fileObject.BucketName, fileObject.ObjectName)
-	var session model.UploadSession
-	if err := repo.Db.Where("file_hash = ? AND user_id = ?", fileObject.Hash, fileObject.UserID).Order("id desc").First(&session).Error; err != nil {
+	if !scheduledDelete {
 		return nil
 	}
-	return repo.Db.Where("upload_id = ?", session.UploadID).Delete(&model.FileChunk{}).Error
+	// Fire-and-forget cleanup attempt to reduce waiting for the next watchdog tick.
+	go func() {
+		_, _ = CleanupPendingFileObjects(context.Background(), 1)
+	}()
+	return nil
 }

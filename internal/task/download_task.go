@@ -11,6 +11,7 @@ import (
 	"CloudVault/utils"
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -131,44 +132,37 @@ func ProcessDownloadTask(ctx context.Context, taskID uint64) error {
 		return err
 	}
 
-	objectName := service.BuildObjectName(userName, task.ObjectName)
+	objectName := service.BuildTempObjectName(userName, task.ObjectName)
 	cleanupObject := func() {
 		if storage.Default != nil {
 			_ = storage.Default.RemoveObject(ctx, task.Bucket, objectName)
 		}
 	}
-	createdNewObject := false
-	fileObj := &model.FileObject{
-		UserID:     task.UserID,
-		Hash:       task.ObjectName,
-		BucketName: task.Bucket,
-		ObjectName: objectName,
-		Size:       size,
-		RefCount:   1,
+	hash, hashedSize, err := service.ComputeObjectHash(ctx, task.Bucket, objectName)
+	if err != nil {
+		cleanupObject()
+		return err
 	}
-	if err := service.CreateFilesObject(fileObj); err != nil {
-		existingObj, getErr := service.GetFileObjectByHash(task.ObjectName)
-		if getErr != nil {
-			cleanupObject()
-			return err
-		}
-		fileObj = existingObj
-	} else {
-		createdNewObject = true
+	if size > 0 && hashedSize != size {
+		cleanupObject()
+		return fmt.Errorf("downloaded file size mismatch")
 	}
-
-	userFile := &model.UserFile{
-		UserID:   task.UserID,
-		Name:     task.FileName,
-		IsDir:    false,
-		ObjectID: &fileObj.ID,
-		Size:     size,
+	fileID, _, err := service.FinalizeUploadedObject(
+		ctx,
+		task.UserID,
+		nil,
+		task.FileName,
+		hashedSize,
+		task.Bucket,
+		objectName,
+		hash,
+	)
+	if err != nil {
+		cleanupObject()
+		return err
 	}
-	if err := service.CreateUserFileEntry(userFile); err != nil {
-		if createdNewObject {
-			cleanupObject()
-			_ = repo.Db.Delete(&model.FileObject{}, fileObj.ID).Error
-		}
+	userFile, err := service.GetUserFileById(fileID)
+	if err != nil {
 		return err
 	}
 
@@ -180,7 +174,7 @@ func ProcessDownloadTask(ctx context.Context, taskID uint64) error {
 	}).Error; err != nil {
 		return err
 	}
-	_ = activity.Emit(context.Background(), task.UserID, activity.ActionDownload, userFile.ID, size)
+	_ = activity.Emit(context.Background(), task.UserID, activity.ActionDownload, userFile.ID, hashedSize)
 	return nil
 }
 

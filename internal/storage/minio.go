@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -21,6 +22,7 @@ type MinIOStorage struct {
 type ObjectInfo struct {
 	ObjectName string
 	Size       int64
+	ETag       string
 }
 
 // MinioStore implements Store with a MinIO client.
@@ -55,6 +57,7 @@ func (s *MinioStore) GetObject(ctx context.Context, bucket, object string) (io.R
 	info := ObjectInfo{
 		ObjectName: object,
 		Size:       stat.Size,
+		ETag:       strings.Trim(stat.ETag, "\""),
 	}
 	return obj, info, nil
 }
